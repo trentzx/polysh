@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "description": "Type Linux, Windows or PowerShell commands on any OS; polysh translates them, flags and all.",
+    "homepage": "https://github.com/trentzx/polysh",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/trentzx/polysh/releases/download/v0.2.0/polysh-v0.2.0-x86_64-pc-windows-msvc.zip",
+            "hash": "dde21ab8dfa480eb7408ed61abc944d5cf262a02e99b20eaa33eadd5556bf256",
+            "extract_dir": "polysh-v0.2.0-x86_64-pc-windows-msvc"
+        }
+    },
+    "bin": "polysh.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/trentzx/polysh/releases/download/v$version/polysh-v$version-x86_64-pc-windows-msvc.zip",
+                "extract_dir": "polysh-v$version-x86_64-pc-windows-msvc",
+                "hash": {
+                    "url": "$url.sha256"
+                }
+            }
+        }
+    }
+}

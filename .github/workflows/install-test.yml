@@ -1,0 +1,55 @@
+name: Install test
+
+# Runs the one-line installers against the latest published release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  unix:
+    name: install.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, macos-13]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh install.sh
+      - run: |
+          ~/.local/bin/polysh --version
+          test "$(~/.local/bin/polysh -n --to cmd 'ls -la' 2>/dev/null)" = "dir /A"
+
+  homebrew:
+    name: brew (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - run: brew install trentzx/polysh/polysh
+      - run: brew test polysh
+
+  scoop:
+    name: scoop (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - shell: powershell
+        run: |
+          Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force
+          irm get.scoop.sh -outfile install-scoop.ps1
+          ./install-scoop.ps1 -RunAsAdmin
+          $env:Path += ";$env:USERPROFILE\scoop\shims"
+          scoop install https://raw.githubusercontent.com/trentzx/polysh/main/packaging/scoop/polysh.json
+          polysh --version
+
+  windows:
+    name: install.ps1 (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - shell: powershell
+        run: |
+          ./install.ps1
+          $exe = Join-Path $env:LOCALAPPDATA 'polysh\bin\polysh.exe'
+          & $exe --version
+          $out = & $exe -n --to posix 'dir /s /b' 2>$null
+          if ($out -ne 'ls -R') { throw "unexpected: $out" }

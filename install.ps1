@@ -3,6 +3,7 @@
 #
 # Set $env:POLYSH_INSTALL_DIR to choose where it goes
 # (default: %LOCALAPPDATA%\polysh\bin, added to your user PATH).
+# Set $env:POLYSH_NO_MODIFY_PATH = 1 to leave PATH alone.
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -36,7 +37,10 @@ finally {
 }
 
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if (-not (($userPath -split ';') -contains $dir)) {
+if ($env:POLYSH_NO_MODIFY_PATH) {
+    Write-Host "Skipped PATH changes; polysh.exe is in $dir"
+}
+elseif (-not (($userPath -split ';') -contains $dir)) {
     $newPath = if ($userPath) { "$userPath;$dir" } else { $dir }
     [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
     $env:Path += ";$dir"
