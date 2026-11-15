@@ -1,0 +1,16 @@
+[package]
+name = "polysh"
+version = "0.1.0"
+edition = "2021"
+description = "A shell that understands Windows cmd and Linux/macOS commands, and translates them to whatever OS you're on."
+license = "MIT"
+readme = "README.md"
+keywords = ["shell", "cli", "cross-platform", "terminal", "translator"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
