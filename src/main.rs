@@ -4,31 +4,51 @@ mod intent;
 mod parse;
 mod tokenize;
 mod translate;
+mod vars;
 
-use std::io::{self, BufRead, Write};
+use std::borrow::Cow::{self, Owned};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use rustyline::completion::FilenameCompleter;
+use rustyline::error::ReadlineError;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::HistoryHinter;
+use rustyline::{Completer, CompletionType, Config, Editor, Helper, Hinter, Validator};
+
 use dialect::Dialect;
+use tokenize::{split_ops, split_redirect, Piece};
 use translate::{translate, Translation};
 
 const USAGE: &str = "\
 polysh - one shell, every dialect
 
 USAGE:
-    polysh                   Start the interactive shell
-    polysh -c <command>      Translate and run one command
-    polysh -n <command>      Explain only: print the translation, run nothing
-    polysh -h | --help       Show this help
-    polysh -V | --version    Show the version
+    polysh                          Start the interactive shell
+    polysh -c <command>             Translate and run one command
+    polysh -n [--to <dialect>] <command>
+                                    Explain only: print the translation, run nothing
+    polysh -h | --help              Show this help
+    polysh -V | --version           Show the version
 
-Type Windows (dir, del, copy, type, ...) or Linux/macOS (ls, rm, cp, cat, ...)
-commands; polysh rewrites them for the OS you're on.";
+DIALECTS (for --to):
+    cmd          Windows Command Prompt
+    posix        Linux / macOS (sh, bash, zsh)
+    powershell   Windows PowerShell / PowerShell 7
+
+Type Windows (dir, del, copy, ...), Linux/macOS (ls, rm, cp, ...) or
+PowerShell (Get-ChildItem, Remove-Item, ...) commands; polysh rewrites them
+for the OS you're on.";
 
 const REPL_HELP: &str = "\
 Built-ins:  cd [dir]   pwd   help   exit [code]
-Anything else is translated to your OS's shell if needed, then run.
-Pipes and redirection (| > < && ;) are passed through unchanged.";
+Anything else is translated for your OS if needed, then run. Pipes (|),
+chains (&& || ; &) and redirection (> >> < 2>) are translated piece by piece.
+Keys: ↑/↓ history, → accept suggestion, Tab complete paths, Ctrl+C cancel,
+Ctrl+D exit.";
+
+/// For `cd -`.
+static PREVIOUS_DIR: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 enum Control {
     Continue(i32),
@@ -48,24 +68,7 @@ fn main() -> ExitCode {
             };
             exit_code(code)
         }
-        Some("-n") | Some("--explain") => {
-            let line = args[1..].join(" ");
-            match translate(&line, target) {
-                Translation::Translated { from, command } => {
-                    println!("{command}");
-                    eprintln!("({} → {})", from.name(), target.name());
-                }
-                Translation::Native => println!("{line}"),
-                Translation::Untranslated(reason) => {
-                    println!("{line}");
-                    eprintln!(
-                        "(no translation{})",
-                        reason.map(|r| format!(": {r}")).unwrap_or_default()
-                    );
-                }
-            }
-            ExitCode::SUCCESS
-        }
+        Some("-n") | Some("--explain") => explain(&args[1..], target),
         Some("-h") | Some("--help") => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -81,43 +84,128 @@ fn main() -> ExitCode {
     }
 }
 
+fn explain(args: &[String], native: Dialect) -> ExitCode {
+    let (target, rest) = match args {
+        [flag, name, rest @ ..] if flag == "--to" => (Dialect::from_name(name), rest),
+        [flag, rest @ ..] if flag.starts_with("--to=") => (Dialect::from_name(&flag[5..]), rest),
+        _ => (Some(native), args),
+    };
+    let Some(target) = target else {
+        eprintln!("polysh: unknown dialect; use cmd, posix or powershell");
+        return ExitCode::from(2);
+    };
+    let line = rest.join(" ");
+    match translate(&line, target) {
+        Translation::Translated { from, command } => {
+            println!("{command}");
+            eprintln!("({} → {})", from.name(), target.name());
+        }
+        Translation::Native => println!("{line}"),
+        Translation::Untranslated(reason) => {
+            println!("{line}");
+            eprintln!(
+                "(no translation{})",
+                reason.map(|r| format!(": {r}")).unwrap_or_default()
+            );
+        }
+    }
+    ExitCode::SUCCESS
+}
+
 fn exit_code(code: i32) -> ExitCode {
     ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
+#[derive(Helper, Completer, Hinter, Validator, Default)]
+struct ShellHelper {
+    #[rustyline(Completer)]
+    completer: FilenameCompleter,
+    #[rustyline(Hinter)]
+    hinter: HistoryHinter,
+}
+
+impl Highlighter for ShellHelper {
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        Owned(format!("\x1b[2m{hint}\x1b[0m"))
+    }
+}
+
+fn history_path() -> Option<PathBuf> {
+    home_dir().map(|h| h.join(".polysh_history"))
+}
+
+/// The current folder, with the home folder shortened to `~`.
+fn short_cwd() -> String {
+    let Ok(cwd) = std::env::current_dir() else {
+        return "?".into();
+    };
+    if let Some(home) = home_dir() {
+        if let Ok(rest) = cwd.strip_prefix(&home) {
+            let rest = rest.display().to_string();
+            return if rest.is_empty() {
+                "~".into()
+            } else {
+                format!("~{}{rest}", std::path::MAIN_SEPARATOR)
+            };
+        }
+    }
+    cwd.display().to_string()
+}
+
 fn repl(target: Dialect) -> ExitCode {
+    // Ctrl+C should stop the running command, not polysh. The child gets the
+    // signal from the terminal; we just ignore it.
+    let _ = ctrlc::set_handler(|| {});
+
+    let config = Config::builder()
+        .completion_type(CompletionType::List)
+        .history_ignore_space(true)
+        .auto_add_history(true)
+        .max_history_size(5000)
+        .unwrap_or_else(|_| Config::builder())
+        .build();
+    let mut rl = match Editor::<ShellHelper, _>::with_default(config) {
+        Ok(rl) => rl,
+        Err(e) => {
+            eprintln!("polysh: can't start the line editor: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let history = history_path();
+    if let Some(h) = &history {
+        let _ = rl.load_history(h);
+    }
+
     println!(
-        "polysh {} ({}). Type 'help' for help, 'exit' to quit.",
+        "polysh {} · {} · type 'help' for help",
         env!("CARGO_PKG_VERSION"),
         target.name()
     );
-    let stdin = io::stdin();
-    let mut last = 0;
-    loop {
-        let cwd = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "?".into());
-        print!("polysh {cwd}> ");
-        let _ = io::stdout().flush();
 
-        let mut line = String::new();
-        match stdin.lock().read_line(&mut line) {
-            Ok(0) => {
-                println!();
-                return exit_code(last);
-            }
-            Ok(_) => {}
+    let mut last = 0;
+    let code = loop {
+        let cwd = short_cwd();
+        let plain = format!("{cwd} › ");
+        let arrow = if last == 0 { "32" } else { "31" };
+        let colored = format!("\x1b[36m{cwd}\x1b[0m \x1b[{arrow}m›\x1b[0m ");
+        match rl.readline(&(plain, colored)) {
+            Ok(line) => match run_line(&line, target) {
+                Control::Continue(c) => last = c,
+                Control::Exit(c) => break c,
+            },
+            Err(ReadlineError::Interrupted) => last = 130,
+            Err(ReadlineError::Eof) => break last,
             Err(e) => {
                 eprintln!("polysh: {e}");
-                return ExitCode::from(1);
+                break 1;
             }
         }
+    };
 
-        match run_line(line.trim(), target) {
-            Control::Continue(c) => last = c,
-            Control::Exit(c) => return exit_code(c),
-        }
+    if let Some(h) = &history {
+        let _ = rl.save_history(h);
     }
+    exit_code(code)
 }
 
 fn run_line(line: &str, target: Dialect) -> Control {
@@ -150,8 +238,13 @@ fn run_line(line: &str, target: Dialect) -> Control {
 }
 
 /// Commands that must run inside polysh itself (a child process can't
-/// change our working directory) or that every OS should have.
+/// change our working directory) or that every OS should have. Only applies
+/// to a lone command; inside a chain, `cd` is translated and run normally.
 fn builtin(line: &str) -> Option<Control> {
+    match split_ops(line)?.as_slice() {
+        [Piece::Command(c)] if split_redirect(c).1.is_empty() => {}
+        _ => return None,
+    }
     let tokens = tokenize::tokenize(line)?;
     let (first, rest) = tokens.split_first()?;
     match first.to_ascii_lowercase().as_str() {
@@ -163,22 +256,34 @@ fn builtin(line: &str) -> Option<Control> {
             println!("{REPL_HELP}");
             Some(Control::Continue(0))
         }
-        "pwd" if rest.is_empty() => {
+        "pwd" | "get-location" | "gl" if rest.is_empty() => {
             match std::env::current_dir() {
                 Ok(p) => println!("{}", p.display()),
                 Err(e) => eprintln!("pwd: {e}"),
             }
             Some(Control::Continue(0))
         }
-        "cd" | "chdir" => {
+        "cd" | "chdir" | "set-location" | "sl" => {
             // cmd's `cd /d D:\x` switches drive too; std handles that for us.
             let args: Vec<&String> = rest
                 .iter()
-                .filter(|a| !a.eq_ignore_ascii_case("/d"))
+                .filter(|a| !a.eq_ignore_ascii_case("/d") && !a.eq_ignore_ascii_case("-path"))
                 .collect();
             let dest = match args.as_slice() {
                 [] => home_dir(),
-                [p] => Some(expand_home(p)),
+                [p] if p.as_str() == "-" => {
+                    match PREVIOUS_DIR.lock().ok().and_then(|g| g.clone()) {
+                        Some(prev) => {
+                            println!("{}", prev.display());
+                            Some(prev)
+                        }
+                        None => {
+                            eprintln!("cd: no previous directory");
+                            return Some(Control::Continue(1));
+                        }
+                    }
+                }
+                [p] => Some(PathBuf::from(vars::expand(p))),
                 _ => {
                     eprintln!("cd: too many arguments");
                     return Some(Control::Continue(1));
@@ -188,8 +293,14 @@ fn builtin(line: &str) -> Option<Control> {
                 eprintln!("cd: no home directory found");
                 return Some(Control::Continue(1));
             };
+            let before = std::env::current_dir().ok();
             match std::env::set_current_dir(&dest) {
-                Ok(()) => Some(Control::Continue(0)),
+                Ok(()) => {
+                    if let Ok(mut prev) = PREVIOUS_DIR.lock() {
+                        *prev = before;
+                    }
+                    Some(Control::Continue(0))
+                }
                 Err(e) => {
                     eprintln!("cd: {}: {e}", dest.display());
                     Some(Control::Continue(1))
@@ -206,18 +317,6 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn expand_home(p: &str) -> PathBuf {
-    if p == "~" {
-        return home_dir().unwrap_or_else(|| PathBuf::from(p));
-    }
-    if let Some(rest) = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")) {
-        if let Some(home) = home_dir() {
-            return home.join(rest);
-        }
-    }
-    PathBuf::from(p)
-}
-
 /// Print a dim status line to stderr (plain text if NO_COLOR is set).
 fn note(msg: &str) {
     if std::env::var_os("NO_COLOR").is_some() {
@@ -229,7 +328,7 @@ fn note(msg: &str) {
 
 fn execute(command: &str) -> i32 {
     match system_shell(command).status() {
-        Ok(status) => status.code().unwrap_or(1),
+        Ok(status) => status.code().unwrap_or(130),
         Err(e) => {
             eprintln!("polysh: failed to start the system shell: {e}");
             127

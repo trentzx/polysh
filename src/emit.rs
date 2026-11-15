@@ -1,29 +1,56 @@
 //! [`Intent`] → command line in a target [`Dialect`].
 
-use crate::dialect::Dialect;
+use crate::dialect::Dialect::{self, Cmd, Posix, PowerShell};
 use crate::intent::Intent;
+use crate::vars;
 
-pub fn emit(intent: &Intent, target: Dialect) -> String {
-    match target {
-        Dialect::Cmd => emit_cmd(intent),
-        Dialect::Posix => emit_posix(intent),
+/// Write `intent` in the `to` dialect. `from` is the dialect it was parsed
+/// from, used to translate environment variables in arguments.
+pub fn emit(intent: &Intent, from: Dialect, to: Dialect) -> String {
+    let l = Ctx { from, to };
+    match to {
+        Cmd => emit_cmd(intent, l),
+        Posix => emit_posix(intent, l),
+        PowerShell => emit_powershell(intent, l),
     }
 }
 
-/// Small builder that quotes and converts arguments for one dialect.
-struct Line {
-    parts: Vec<String>,
-    target: Dialect,
+#[derive(Clone, Copy)]
+struct Ctx {
+    from: Dialect,
+    to: Dialect,
 }
 
-impl Line {
-    fn new(target: Dialect, program: &str) -> Self {
+impl Ctx {
+    fn line(self, program: &str) -> Line {
         Line {
             parts: vec![program.to_string()],
-            target,
+            ctx: self,
         }
     }
 
+    /// An argument that names a file: variables and separators converted,
+    /// then quoted if needed.
+    fn arg(self, p: &str) -> String {
+        quote(&self.convert(p), self.to)
+    }
+
+    fn convert(self, p: &str) -> String {
+        let p = vars::convert(p, self.from, self.to);
+        match self.to {
+            Posix => p.replace('\\', "/"),
+            Cmd | PowerShell => p.replace('/', "\\"),
+        }
+    }
+}
+
+/// Small builder for one command line.
+struct Line {
+    parts: Vec<String>,
+    ctx: Ctx,
+}
+
+impl Line {
     fn word(mut self, w: &str) -> Self {
         self.parts.push(w.to_string());
         self
@@ -52,21 +79,32 @@ impl Line {
     }
 
     fn path(mut self, p: &str) -> Self {
-        let converted = convert_path(p, self.target);
-        self.parts.push(quote(&converted, self.target, false));
+        let a = self.ctx.arg(p);
+        self.parts.push(a);
         self
     }
 
+    /// Several paths. PowerShell needs them comma-separated.
     fn paths(mut self, ps: &[String]) -> Self {
+        if self.ctx.to == PowerShell && ps.len() > 1 {
+            let list: Vec<String> = ps.iter().map(|p| self.ctx.arg(p)).collect();
+            self.parts.push(list.join(", "));
+            return self;
+        }
         for p in ps {
             self = self.path(p);
         }
         self
     }
 
-    /// An argument that's always quoted (search patterns).
+    /// A search pattern: always quoted, never variable-expanded.
     fn literal(mut self, s: &str) -> Self {
-        self.parts.push(quote(s, self.target, true));
+        let q = match self.ctx.to {
+            Posix => format!("'{}'", s.replace('\'', r"'\''")),
+            Cmd => format!("\"{}\"", s.replace('"', "\"\"")),
+            PowerShell => format!("'{}'", s.replace('\'', "''")),
+        };
+        self.parts.push(q);
         self
     }
 
@@ -75,29 +113,33 @@ impl Line {
     }
 }
 
-fn convert_path(p: &str, target: Dialect) -> String {
-    match target {
-        Dialect::Posix => p.replace('\\', "/"),
-        Dialect::Cmd => p.replace('/', "\\"),
-    }
-}
-
-fn quote(s: &str, target: Dialect, force: bool) -> String {
-    let needs = force
-        || s.is_empty()
+fn quote(s: &str, to: Dialect) -> String {
+    let needs = s.is_empty()
         || s.chars().any(|c| {
             c.is_whitespace()
                 || matches!(
                     c,
-                    '"' | '\'' | '$' | '`' | '&' | '|' | '<' | '>' | ';' | '(' | ')' | '^'
+                    '"' | '\'' | '`' | '&' | '|' | '<' | '>' | ';' | '(' | ')' | '^'
                 )
+                || (to == PowerShell && matches!(c, '{' | '}' | '@' | '#' | ','))
         });
     if !needs {
         return s.to_string();
     }
-    match target {
-        Dialect::Posix => format!("'{}'", s.replace('\'', r"'\''")),
-        Dialect::Cmd => format!("\"{}\"", s.replace('"', "\"\"")),
+    match to {
+        // Double quotes keep `$HOME` expanding; single quotes are fully literal.
+        Posix if s.contains('$') => format!(
+            "\"{}\"",
+            s.replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('`', "\\`")
+        ),
+        Posix => format!("'{}'", s.replace('\'', r"'\''")),
+        Cmd => format!("\"{}\"", s.replace('"', "\"\"")),
+        PowerShell if s.contains('$') => {
+            format!("\"{}\"", s.replace('`', "``").replace('"', "`\""))
+        }
+        PowerShell => format!("'{}'", s.replace('\'', "''")),
     }
 }
 
@@ -110,35 +152,50 @@ fn strip_exe(name: &str) -> &str {
     }
 }
 
-fn emit_cmd(intent: &Intent) -> String {
-    let t = Dialect::Cmd;
+fn with_exe(name: &str) -> String {
+    if name.contains('.') {
+        name.to_string()
+    } else {
+        format!("{name}.exe")
+    }
+}
+
+fn emit_cmd(intent: &Intent, l: Ctx) -> String {
     match intent {
         Intent::ListDir {
             all,
             long,
             recursive,
             paths,
-        } => Line::new(t, "dir")
+        } => l
+            .line("dir")
             .flag(*all, "/A")
             .flag(*recursive, "/S")
             .flag(!*long, "/B")
             .paths(paths)
             .build(),
+        Intent::FindName { root, pattern, .. } => {
+            let target = if root == "." {
+                pattern.clone()
+            } else {
+                format!("{root}\\{pattern}")
+            };
+            l.line("dir").word("/S").word("/B").path(&target).build()
+        }
         Intent::Copy {
             recursive: true,
             src,
             dst,
-        } => Line::new(t, "xcopy")
+        } => l
+            .line("xcopy")
             .path(src)
             .path(dst)
             .word("/E")
             .word("/I")
             .word("/Y")
             .build(),
-        Intent::Copy { src, dst, .. } => {
-            Line::new(t, "copy").word("/Y").path(src).path(dst).build()
-        }
-        Intent::Move { src, dst } => Line::new(t, "move").word("/Y").path(src).path(dst).build(),
+        Intent::Copy { src, dst, .. } => l.line("copy").word("/Y").path(src).path(dst).build(),
+        Intent::Move { src, dst } => l.line("move").word("/Y").path(src).path(dst).build(),
         Intent::Remove {
             recursive: true,
             force,
@@ -150,47 +207,73 @@ fn emit_cmd(intent: &Intent) -> String {
             paths
                 .iter()
                 .map(|p| {
-                    let p = convert_path(p, t);
+                    let p = l.convert(p);
                     format!("if exist \"{p}\\*\" (rmdir /S /Q \"{p}\") else ({del} \"{p}\")")
                 })
                 .collect::<Vec<_>>()
                 .join(" & ")
         }
-        Intent::Remove { force, paths, .. } => Line::new(t, "del")
+        Intent::Remove { force, paths, .. } => l
+            .line("del")
             .flag(*force, "/F")
             .flag(*force, "/Q")
             .paths(paths)
             .build(),
-        Intent::MakeDir { paths } => Line::new(t, "mkdir").paths(paths).build(),
-        Intent::RemoveDir { recursive, paths } => Line::new(t, "rmdir")
+        Intent::MakeDir { paths } => l.line("mkdir").paths(paths).build(),
+        Intent::RemoveDir { recursive, paths } => l
+            .line("rmdir")
             .flag(*recursive, "/S")
             .flag(*recursive, "/Q")
             .paths(paths)
             .build(),
-        Intent::PrintFile { paths } => Line::new(t, "type").paths(paths).build(),
+        // Appending nothing creates the file without touching its contents.
+        Intent::Touch { paths } => paths
+            .iter()
+            .map(|p| format!("type nul >> \"{}\"", l.convert(p)))
+            .collect::<Vec<_>>()
+            .join(" & "),
+        Intent::PrintFile { paths } => l.line("type").paths(paths).build(),
+        Intent::Echo { words } if words.is_empty() => "echo.".to_string(),
+        Intent::Echo { words } => {
+            let text: Vec<String> = words
+                .iter()
+                .map(|w| vars::convert(w, l.from, l.to))
+                .collect();
+            format!("echo {}", text.join(" "))
+        }
+        Intent::ChangeDir { path } => l.line("cd").word("/d").path(path).build(),
         Intent::Clear => "cls".to_string(),
-        Intent::NetConfig { all } => Line::new(t, "ipconfig").flag(*all, "/all").build(),
+        Intent::ListEnv => "set".to_string(),
+        Intent::NetConfig { all } => l.line("ipconfig").flag(*all, "/all").build(),
+        Intent::Ping {
+            count,
+            forever,
+            host,
+        } => {
+            let line = l.line("ping");
+            let line = match (count, forever) {
+                (Some(n), _) => line.word("-n").word(n),
+                (None, true) => line.word("-t"),
+                (None, false) => line,
+            };
+            line.path(host).build()
+        }
+        Intent::Sleep { secs } => format!("timeout /t {secs} /nobreak >nul"),
         Intent::ProcessList => "tasklist".to_string(),
         Intent::KillPid { force, pids } => {
-            let mut line = Line::new(t, "taskkill").flag(*force, "/F");
+            let mut line = l.line("taskkill").flag(*force, "/F");
             for pid in pids {
                 line = line.word("/PID").word(pid);
             }
             line.build()
         }
-        Intent::KillName { force, name } => {
-            let image = if name.contains('.') {
-                name.clone()
-            } else {
-                format!("{name}.exe")
-            };
-            Line::new(t, "taskkill")
-                .flag(*force, "/F")
-                .word("/IM")
-                .path(&image)
-                .build()
-        }
-        Intent::Which { names } => Line::new(t, "where").paths(names).build(),
+        Intent::KillName { force, name } => l
+            .line("taskkill")
+            .flag(*force, "/F")
+            .word("/IM")
+            .path(&with_exe(name))
+            .build(),
+        Intent::Which { names } => l.line("where").paths(names).build(),
         Intent::Search {
             ignore_case,
             recursive,
@@ -198,7 +281,8 @@ fn emit_cmd(intent: &Intent) -> String {
             pattern,
             paths,
         } => {
-            let line = Line::new(t, "findstr")
+            let line = l
+                .line("findstr")
                 .flag(*ignore_case, "/I")
                 .flag(*recursive, "/S")
                 .flag(*line_numbers, "/N")
@@ -213,44 +297,66 @@ fn emit_cmd(intent: &Intent) -> String {
     }
 }
 
-fn emit_posix(intent: &Intent) -> String {
-    let t = Dialect::Posix;
+fn emit_posix(intent: &Intent, l: Ctx) -> String {
     match intent {
         Intent::ListDir {
             all,
             long,
             recursive,
             paths,
-        } => Line::new(t, "ls")
+        } => l
+            .line("ls")
             .bundle(&[('a', *all), ('l', *long), ('R', *recursive)])
             .paths(paths)
+            .build(),
+        Intent::FindName {
+            root,
+            pattern,
+            ignore_case,
+        } => l
+            .line("find")
+            .path(root)
+            .word(if *ignore_case { "-iname" } else { "-name" })
+            .literal(pattern)
             .build(),
         Intent::Copy {
             recursive,
             src,
             dst,
-        } => Line::new(t, "cp")
+        } => l
+            .line("cp")
             .flag(*recursive, "-r")
             .path(src)
             .path(dst)
             .build(),
-        Intent::Move { src, dst } => Line::new(t, "mv").path(src).path(dst).build(),
+        Intent::Move { src, dst } => l.line("mv").path(src).path(dst).build(),
         Intent::Remove {
             recursive,
             force,
             paths,
-        } => Line::new(t, "rm")
+        } => l
+            .line("rm")
             .bundle(&[('r', *recursive), ('f', *force)])
             .paths(paths)
             .build(),
-        Intent::MakeDir { paths } => Line::new(t, "mkdir").word("-p").paths(paths).build(),
+        Intent::MakeDir { paths } => l.line("mkdir").word("-p").paths(paths).build(),
         Intent::RemoveDir {
             recursive: true,
             paths,
-        } => Line::new(t, "rm").word("-r").paths(paths).build(),
-        Intent::RemoveDir { paths, .. } => Line::new(t, "rmdir").paths(paths).build(),
-        Intent::PrintFile { paths } => Line::new(t, "cat").paths(paths).build(),
+        } => l.line("rm").word("-r").paths(paths).build(),
+        Intent::RemoveDir { paths, .. } => l.line("rmdir").paths(paths).build(),
+        Intent::Touch { paths } => l.line("touch").paths(paths).build(),
+        Intent::PrintFile { paths } => l.line("cat").paths(paths).build(),
+        Intent::Echo { words } => {
+            let text: Vec<String> = words
+                .iter()
+                .map(|w| vars::convert(w, l.from, l.to))
+                .collect();
+            l.line("echo").word(&quote(&text.join(" "), Posix)).build()
+        }
+        Intent::ChangeDir { path } => l.line("cd").path(path).build(),
         Intent::Clear => "clear".to_string(),
+        Intent::ListEnv => "env".to_string(),
         Intent::NetConfig { .. } => {
             if cfg!(target_os = "linux") {
                 "ip addr".to_string()
@@ -258,25 +364,178 @@ fn emit_posix(intent: &Intent) -> String {
                 "ifconfig".to_string()
             }
         }
-        Intent::ProcessList => "ps aux".to_string(),
-        Intent::KillPid { force, pids } => {
-            Line::new(t, "kill").flag(*force, "-9").paths(pids).build()
+        Intent::Ping {
+            count,
+            forever,
+            host,
+        } => {
+            let line = l.line("ping");
+            let line = match (count, forever) {
+                (Some(n), _) => line.word("-c").word(n),
+                (None, true) => line,
+                // Windows' default is 4; POSIX would otherwise ping forever.
+                (None, false) => line.word("-c").word("4"),
+            };
+            line.path(host).build()
         }
-        Intent::KillName { force, name } => Line::new(t, "pkill")
+        Intent::Sleep { secs } => format!("sleep {secs}"),
+        Intent::ProcessList => "ps aux".to_string(),
+        Intent::KillPid { force, pids } => l.line("kill").flag(*force, "-9").paths(pids).build(),
+        Intent::KillName { force, name } => l
+            .line("pkill")
             .flag(*force, "-9")
             .path(strip_exe(name))
             .build(),
-        Intent::Which { names } => Line::new(t, "which").paths(names).build(),
+        Intent::Which { names } => l.line("which").paths(names).build(),
         Intent::Search {
             ignore_case,
             recursive,
             line_numbers,
             pattern,
             paths,
-        } => Line::new(t, "grep")
+        } => l
+            .line("grep")
             .bundle(&[('i', *ignore_case), ('r', *recursive), ('n', *line_numbers)])
             .literal(pattern)
             .paths(paths)
             .build(),
+    }
+}
+
+fn emit_powershell(intent: &Intent, l: Ctx) -> String {
+    match intent {
+        Intent::ListDir {
+            all,
+            long,
+            recursive,
+            paths,
+        } => l
+            .line("Get-ChildItem")
+            .flag(*all, "-Force")
+            .flag(*recursive, "-Recurse")
+            .flag(!*long, "-Name")
+            .paths(paths)
+            .build(),
+        Intent::FindName { root, pattern, .. } => {
+            let line = l.line("Get-ChildItem");
+            let line = if root == "." { line } else { line.path(root) };
+            line.word("-Recurse")
+                .word("-Filter")
+                .literal(pattern)
+                .word("-Name")
+                .build()
+        }
+        Intent::Copy {
+            recursive,
+            src,
+            dst,
+        } => l
+            .line("Copy-Item")
+            .path(src)
+            .path(dst)
+            .flag(*recursive, "-Recurse")
+            .build(),
+        Intent::Move { src, dst } => l.line("Move-Item").path(src).path(dst).build(),
+        Intent::Remove {
+            recursive,
+            force,
+            paths,
+        } => l
+            .line("Remove-Item")
+            .flag(*recursive, "-Recurse")
+            .flag(*force, "-Force")
+            .paths(paths)
+            .build(),
+        Intent::MakeDir { paths } => l
+            .line("New-Item")
+            .word("-ItemType")
+            .word("Directory")
+            .word("-Force")
+            .paths(paths)
+            .build(),
+        Intent::RemoveDir { recursive, paths } => l
+            .line("Remove-Item")
+            .flag(*recursive, "-Recurse")
+            .paths(paths)
+            .build(),
+        Intent::Touch { paths } => paths
+            .iter()
+            .map(|p| {
+                let a = l.arg(p);
+                format!(
+                    "if (Test-Path {a}) {{ (Get-Item {a}).LastWriteTime = Get-Date }} else {{ New-Item -ItemType File {a} | Out-Null }}"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; "),
+        Intent::PrintFile { paths } => l.line("Get-Content").paths(paths).build(),
+        Intent::Echo { words } => {
+            let text: Vec<String> = words
+                .iter()
+                .map(|w| vars::convert(w, l.from, l.to))
+                .collect();
+            l.line("Write-Output")
+                .word(&quote(&text.join(" "), PowerShell))
+                .build()
+        }
+        Intent::ChangeDir { path } => l.line("Set-Location").path(path).build(),
+        Intent::Clear => "Clear-Host".to_string(),
+        Intent::ListEnv => "Get-ChildItem Env:".to_string(),
+        Intent::NetConfig { .. } => "Get-NetIPConfiguration".to_string(),
+        Intent::Ping {
+            count,
+            forever,
+            host,
+        } => match (count, forever) {
+            (Some(n), _) => l
+                .line("Test-Connection")
+                .path(host)
+                .word("-Count")
+                .word(n)
+                .build(),
+            (None, true) => l.line("ping").word("-t").path(host).build(),
+            (None, false) => l.line("Test-Connection").path(host).build(),
+        },
+        Intent::Sleep { secs } => format!("Start-Sleep -Seconds {secs}"),
+        Intent::ProcessList => "Get-Process".to_string(),
+        Intent::KillPid { force, pids } => l
+            .line("Stop-Process")
+            .word("-Id")
+            .word(&pids.join(", "))
+            .flag(*force, "-Force")
+            .build(),
+        Intent::KillName { force, name } => l
+            .line("Stop-Process")
+            .word("-Name")
+            .path(strip_exe(name))
+            .flag(*force, "-Force")
+            .build(),
+        Intent::Which { names } => l.line("Get-Command").paths(names).build(),
+        Intent::Search {
+            ignore_case,
+            recursive,
+            pattern,
+            paths,
+            ..
+        } => {
+            let sls = |line: Line| {
+                line.word("-Pattern")
+                    .literal(pattern)
+                    .flag(!*ignore_case, "-CaseSensitive")
+            };
+            if *recursive {
+                let gci = l.line("Get-ChildItem").word("-Recurse").word("-File");
+                let gci = if paths.is_empty() { gci } else { gci.paths(paths) };
+                format!("{} | {}", gci.build(), sls(l.line("Select-String")).build())
+            } else {
+                let line = sls(l.line("Select-String"));
+                let line = if paths.is_empty() {
+                    line
+                } else {
+                    line.word("-Path").paths(paths)
+                };
+                line.build()
+            }
+        }
     }
 }

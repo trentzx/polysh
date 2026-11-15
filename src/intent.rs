@@ -10,6 +10,12 @@ pub enum Intent {
         recursive: bool,
         paths: Vec<String>,
     },
+    /// Recursively find files whose name matches a glob.
+    FindName {
+        root: String,
+        pattern: String,
+        ignore_case: bool,
+    },
     Copy {
         recursive: bool,
         src: String,
@@ -32,12 +38,34 @@ pub enum Intent {
         recursive: bool,
         paths: Vec<String>,
     },
+    /// Create empty files if missing; never truncates existing ones.
+    Touch {
+        paths: Vec<String>,
+    },
     PrintFile {
         paths: Vec<String>,
     },
+    Echo {
+        words: Vec<String>,
+    },
+    /// Only produced inside chains (`cd app && npm i`); a bare `cd` is a
+    /// polysh built-in.
+    ChangeDir {
+        path: String,
+    },
     Clear,
+    ListEnv,
     NetConfig {
         all: bool,
+    },
+    /// `count: None, forever: false` means the platform's "a few pings".
+    Ping {
+        count: Option<String>,
+        forever: bool,
+        host: String,
+    },
+    Sleep {
+        secs: String,
     },
     ProcessList,
     KillPid {

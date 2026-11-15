@@ -18,8 +18,8 @@ Say you want `ping -c 4 host` ↔ `ping -n 4 host`.
    ```rust
    Ping { count: Option<String>, host: String },
    ```
-2. **Read each spelling** in [`src/parse.rs`](src/parse.rs). Add one match arm for the POSIX form and one for the cmd form. Use `Args::only(...)` to list the flags you understand, so anything else returns `None`.
-3. **Write each spelling** in [`src/emit.rs`](src/emit.rs), with one arm in `emit_cmd` and one in `emit_posix`.
+2. **Read each spelling** in [`src/parse.rs`](src/parse.rs). Add a match arm for the POSIX form and one for the cmd form in `parse`, and one for the cmdlet in `parse_powershell`. Use `Args::only(...)` (or the `spec` list for `ps_args`) to name the flags you understand, so anything else returns `None`.
+3. **Write each spelling** in [`src/emit.rs`](src/emit.rs), with one arm in each of `emit_cmd`, `emit_posix` and `emit_powershell`.
 4. **Test both directions** in [`src/translate.rs`](src/translate.rs):
    ```rust
    assert_eq!(tr("ping -c 4 example.com", Cmd), "ping -n 4 example.com");
@@ -30,7 +30,7 @@ Say you want `ping -c 4 host` ↔ `ping -n 4 host`.
 ## Ground rules
 
 - **Never guess.** If a flag's meaning doesn't map cleanly, don't accept it. Returning `None` runs the user's line unchanged, which is always safer than a wrong translation, especially for anything that deletes or kills.
-- **Keep it dependency-free** unless there's a strong reason (line editing is a likely exception).
+- **Keep dependencies minimal.** The only ones today are `rustyline` (line editing) and `ctrlc`.
 - Before opening a PR, run:
   ```bash
   cargo fmt

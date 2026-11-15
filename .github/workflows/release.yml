@@ -39,13 +39,21 @@ jobs:
           mkdir "$name"
           cp "target/${{ matrix.target }}/release/polysh${{ matrix.ext }}" README.md LICENSE "$name/"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "$name.zip" "$name" > /dev/null
+            archive="$name.zip"
+            7z a "$archive" "$name" > /dev/null
           else
-            tar czf "$name.tar.gz" "$name"
+            archive="$name.tar.gz"
+            tar czf "$archive" "$name"
+          fi
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$archive" > "$archive.sha256"
+          else
+            shasum -a 256 "$archive" > "$archive.sha256"
           fi
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             polysh-*.zip
             polysh-*.tar.gz
+            polysh-*.sha256
           generate_release_notes: true
