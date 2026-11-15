@@ -58,7 +58,10 @@ fn main() -> ExitCode {
                 Translation::Native => println!("{line}"),
                 Translation::Untranslated(reason) => {
                     println!("{line}");
-                    eprintln!("(no translation{})", reason.map(|r| format!(": {r}")).unwrap_or_default());
+                    eprintln!(
+                        "(no translation{})",
+                        reason.map(|r| format!(": {r}")).unwrap_or_default()
+                    );
                 }
             }
             ExitCode::SUCCESS
@@ -129,7 +132,11 @@ fn run_line(line: &str, target: Dialect) -> Control {
     let command = match translate(line, target) {
         Translation::Native => line.to_string(),
         Translation::Translated { from, command } => {
-            note(&format!("↳ {command}   ({} → {})", from.name(), target.name()));
+            note(&format!(
+                "↳ {command}   ({} → {})",
+                from.name(),
+                target.name()
+            ));
             command
         }
         Translation::Untranslated(reason) => {
@@ -165,7 +172,10 @@ fn builtin(line: &str) -> Option<Control> {
         }
         "cd" | "chdir" => {
             // cmd's `cd /d D:\x` switches drive too; std handles that for us.
-            let args: Vec<&String> = rest.iter().filter(|a| !a.eq_ignore_ascii_case("/d")).collect();
+            let args: Vec<&String> = rest
+                .iter()
+                .filter(|a| !a.eq_ignore_ascii_case("/d"))
+                .collect();
             let dest = match args.as_slice() {
                 [] => home_dir(),
                 [p] => Some(expand_home(p)),

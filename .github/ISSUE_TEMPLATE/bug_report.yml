@@ -1,0 +1,34 @@
+name: Bad translation or bug
+description: polysh ran the wrong thing, or something broke
+labels: ["bug"]
+body:
+  - type: input
+    id: typed
+    attributes:
+      label: What you typed
+    validations:
+      required: true
+  - type: input
+    id: ran
+    attributes:
+      label: What polysh ran
+      description: '`polysh -n "<your command>"` prints it.'
+  - type: input
+    id: expected
+    attributes:
+      label: What you expected
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: polysh version
+      description: "`polysh --version`"

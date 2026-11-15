@@ -1,57 +1,76 @@
+<div align="center">
+
 # polysh
 
-**One shell, every dialect.** Type the commands you already know — Windows `cmd` or Linux/macOS — and polysh translates them, flags included, to whatever OS you're actually on.
+### Stop translating commands in your head.
 
-```text
-polysh C:\Users\me\project> ls -la
-  ↳ dir /A   (POSIX sh → Windows cmd)
- Volume in drive C has no label.
- ...
+Type `ls -la` on Windows or `dir /s` on a Mac, and polysh turns it into the right command for your OS, flags and all.
 
-polysh /home/me/project> dir /s /b
-  ↳ ls -R   (Windows cmd → POSIX sh)
- ...
-```
+[![CI](https://github.com/trentzx/polysh/actions/workflows/ci.yml/badge.svg)](https://github.com/trentzx/polysh/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational)
+![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
+![Written in Rust](https://img.shields.io/badge/written%20in-Rust-orange?logo=rust)
 
-## Why
+<img src="assets/demo.svg" alt="polysh translating Linux commands on Windows and Windows commands on macOS" width="760">
 
-Switching between Windows, Linux, and macOS means constantly hitting this:
+</div>
+
+---
+
+## The problem
+
+You know this one:
 
 ```text
 C:\> ls -la
-'ls' is not recognized as an internal or external command
+'ls' is not recognized as an internal or external command,
+operable program or batch file.
 ```
 
-Existing tools only solve half of it:
-
-| Tool | Gap |
-|---|---|
-| WSL / Git Bash / Cygwin | Give you Linux commands on Windows, but your `dir` / `del` / `copy` habits stop working. |
-| PowerShell aliases | `ls`, `cp`, `rm` exist as **names**, but Linux **flags** (`ls -la`, `rm -rf`) break. |
-| Nushell, Xonsh, etc. | Cross-platform, but each is a *new* syntax to learn. |
-| AI terminals | Need a network round-trip and a model; not instant or deterministic. |
-
-polysh is the missing piece: a small, fast, offline, deterministic translator that understands **both** dialects and shows you exactly what it ran.
-
-## How it works
+And the reverse:
 
 ```text
- your input ──► tokenize ──► parse (detect dialect) ──► Intent ──► emit (native dialect) ──► run
-   "rm -rf build"            POSIX `rm`, flags r+f      Remove{recursive, force}     rmdir /S /Q ...
+$ dir /s
+dir: cannot access '/s': No such file or directory
 ```
 
-1. **Tokenize** the line (quote-aware).
-2. **Parse** the command name to detect its dialect (`dir` → cmd, `ls` → POSIX) and read its flags (`/S` vs `-R`) into a dialect-neutral **Intent**.
-3. **Emit** that intent in your OS's native dialect.
-4. **Run** it through the system shell (`cmd /C` on Windows, `sh -c` elsewhere), printing the translation first so you learn as you go.
+If you've ever used more than one OS (a Windows laptop and a Linux server, a Mac at work and a PC at home, or WSL alongside PowerShell), you've typed the wrong dialect, sighed, and looked it up. **polysh fixes that.** Type what your fingers already know, and it runs the right thing.
 
-Safety rules:
+## Install
 
-- If a command is **already native**, it runs untouched.
-- If polysh sees a flag it doesn't fully understand (e.g. `rm -i`), it **does not guess**; it passes the line through unchanged.
-- Pipes and redirection (`|`, `>`, `&&`, `;`) are passed through as-is for now.
+**With Cargo** (any OS):
 
-## Supported commands (v0.1)
+```bash
+cargo install --git https://github.com/trentzx/polysh
+```
+
+**Prebuilt binaries:** download a single file for Windows, macOS (Intel and Apple Silicon) or Linux from [Releases](https://github.com/trentzx/polysh/releases). Nothing else to install.
+
+## Quick start
+
+```bash
+polysh                       # start the interactive shell
+polysh -c "rm -rf build"     # translate and run one command
+polysh -n "kill -9 4242"     # explain only: show the translation, run nothing
+```
+
+`-n` doubles as a cheat sheet. Want to know the Windows way to do something? Ask:
+
+```text
+$ polysh -n "grep -rin TODO src"
+findstr /I /S /N "TODO" src
+```
+
+## What makes it different
+
+- **It translates flags, not just names.** PowerShell aliases `ls` to `Get-ChildItem`, then breaks on `ls -la`. polysh knows `-la` means "all files, long format" and writes `dir /A`.
+- **It never guesses.** If it sees a flag it doesn't fully understand (like `rm -i`), it runs your line unchanged rather than doing something you didn't ask for. Destructive commands stay predictable.
+- **It shows its work.** Every translation is printed before it runs, so you pick up the other OS's commands just by using it.
+- **It's instant and offline.** No AI, no network, no account. A single binary of a few hundred KB with zero dependencies.
+- **It stays out of your way.** Commands that are already native run untouched, and so does anything it doesn't recognise, like `git`, `cargo` or `npm`.
+
+## What it translates
 
 | Task | Windows cmd | Linux / macOS |
 |---|---|---|
@@ -61,7 +80,7 @@ Safety rules:
 | Delete files | `del` / `erase` `/F` `/Q` | `rm` `-r` `-f` |
 | Make folder | `mkdir` / `md` | `mkdir -p` |
 | Remove folder | `rmdir` / `rd` `/S` `/Q` | `rmdir`, `rm -r` |
-| Show file | `type` | `cat` |
+| Show a file | `type` | `cat` |
 | Clear screen | `cls` | `clear` |
 | Network info | `ipconfig` `/all` | `ifconfig`, `ip addr` |
 | List processes | `tasklist` | `ps`, `ps aux` |
@@ -70,69 +89,66 @@ Safety rules:
 | Find a program | `where` | `which` |
 | Search text | `findstr` `/I` `/S` `/N` | `grep` `-i` `-r` `-n` |
 
-Built-ins that work everywhere: `cd` / `chdir` (incl. `cd /d`), `pwd`, `help`, `exit`.
+Path separators are converted as well (`dir src\main` becomes `ls -l src/main`). `cd` (including `cd /d`), `pwd`, `help` and `exit` work the same everywhere.
 
-Path separators are converted too: `dir src\main` → `ls -l src/main`.
+**Missing a command you use every day?** [Request it](https://github.com/trentzx/polysh/issues/new?template=command_request.yml). Each one is a small, self-contained contribution.
 
-## Install
-
-Requires [Rust](https://rustup.rs) (stable).
-
-```bash
-git clone <this-repo-url> polysh
-cd polysh
-cargo install --path .
-```
-
-Or build without installing:
-
-```bash
-cargo build --release
-```
-
-The binary lands in `target/release/polysh` (`polysh.exe` on Windows). It's a single file with no runtime dependencies.
-
-## Usage
-
-```bash
-polysh                      # interactive shell
-polysh -c "ls -la"          # translate and run one command
-polysh -n "rm -rf build"    # explain only: print the translation, run nothing
-polysh --help
-```
-
-## Project layout
+## How it works
 
 ```text
-src/
-├── main.rs       CLI entry point, REPL, built-ins, process execution
-├── dialect.rs    Dialect enum (Windows cmd, POSIX sh) and native detection
-├── tokenize.rs   Quote-aware tokenizer and operator detection
-├── intent.rs     Dialect-neutral description of what a command does
-├── parse.rs      Command line (any dialect) → Intent
-├── emit.rs       Intent → command line in a target dialect
-└── translate.rs  Glue: line in, Translation out (+ tests)
+ "rm -rf build"
+       │
+       ▼  tokenize        quote-aware, keeps Windows backslashes intact
+ [rm] [-rf] [build]
+       │
+       ▼  parse           detects the dialect from the command and reads its flags
+ POSIX · Remove { recursive, force, paths: [build] }
+       │
+       ▼  emit            writes the same intent in your OS's dialect
+ if exist "build\*" (rmdir /S /Q "build") else (del /F /Q "build")
+       │
+       ▼  run             through cmd /C on Windows, sh -c everywhere else
 ```
 
-Adding a command means: add an `Intent` variant, a parser arm for each dialect's spelling, and an emitter arm for each target, plus tests.
+The middle step is the key. Every command is reduced to an **intent** (what it means, not how it's spelled), so adding a dialect means teaching polysh to read and write intents, not writing N×N rules.
+
+## How it compares
+
+| | Knows both dialects | Translates flags | Offline and instant | Nothing new to learn |
+|---|:-:|:-:|:-:|:-:|
+| **polysh** | ✅ | ✅ | ✅ | ✅ |
+| PowerShell aliases | partly | ❌ | ✅ | ✅ |
+| WSL / Git Bash / Cygwin | ❌ Linux only | ❌ | ✅ | ✅ |
+| Nushell, Xonsh, Fish | ❌ own syntax | ❌ | ✅ | ❌ |
+| AI terminals | ✅ | ✅ | ❌ | ✅ |
 
 ## Roadmap
 
-- [ ] PowerShell as a third dialect (`Get-ChildItem`, `Remove-Item -Recurse`, …)
-- [ ] Translate each segment of pipelines and `&&` chains
-- [ ] Line editing, history, and tab completion
-- [ ] Ctrl+C forwards to the running command instead of exiting polysh
-- [ ] Environment variable syntax (`%VAR%` ↔ `$VAR`)
+- [ ] **Pipes and chains:** translate each part of `ls | grep x` and `cd app && npm i`
+- [ ] **PowerShell** as a third dialect (`Get-ChildItem`, `Remove-Item -Recurse`, …)
+- [ ] Line editing, history and tab completion
+- [ ] Ctrl+C stops the running command instead of exiting polysh
+- [ ] Environment variables (`%USERPROFILE%` ↔ `$HOME`)
 - [ ] More commands: `ping`, `tree`, `find`, `chmod`/`icacls`, `env`/`set`, `shutdown`
-- [ ] User-defined translation rules in a config file
-- [ ] Optional AI fallback for commands with no rule
+- [ ] Your own rules in a config file
+- [ ] `winget`, Homebrew and Scoop packages
+
+## Contributing
+
+polysh is built to be easy to extend: one command is usually about 30 lines and a couple of tests. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
 
 ## Known limitations
 
+- Pipes, redirection and `&&` are run as typed for now (see the roadmap).
 - `type` is treated as the Windows "print file" command, so the POSIX `type <cmd>` built-in isn't available through polysh.
-- `cp`/`copy` translate only the two-argument form (`src dst`).
-- Translations aim for the common meaning of each command; edge-case flags pass through untranslated rather than being guessed.
+- `cp` and `copy` translate the two-argument form (`src dst`).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+[MIT](LICENSE)
+
+<div align="center">
+
+**If polysh saved you a trip to Stack Overflow, a ⭐ helps other people find it.**
+
+</div>

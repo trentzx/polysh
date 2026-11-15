@@ -1,0 +1,32 @@
+name: Command request
+description: Ask polysh to translate a command it doesn't know yet
+title: "Translate: "
+labels: ["command request"]
+body:
+  - type: input
+    id: typed
+    attributes:
+      label: What you type
+      placeholder: "ping -c 4 example.com"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: The OS you type it on
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: What it should become
+      placeholder: "ping -n 4 example.com"
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Flags that matter, edge cases, or how often you hit this.

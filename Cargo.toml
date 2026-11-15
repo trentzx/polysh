@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A shell that understands Windows cmd and Linux/macOS commands, and translates them to whatever OS you're on."
 license = "MIT"
+repository = "https://github.com/trentzx/polysh"
 readme = "README.md"
 keywords = ["shell", "cli", "cross-platform", "terminal", "translator"]
 categories = ["command-line-utilities"]

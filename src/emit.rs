@@ -39,7 +39,11 @@ impl Line {
 
     /// POSIX-style bundled flags, e.g. `[('a', true), ('l', false)]` → `-a`.
     fn bundle(self, flags: &[(char, bool)]) -> Self {
-        let s: String = flags.iter().filter(|(_, on)| *on).map(|(c, _)| *c).collect();
+        let s: String = flags
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(c, _)| *c)
+            .collect();
         if s.is_empty() {
             self
         } else {
@@ -83,7 +87,10 @@ fn quote(s: &str, target: Dialect, force: bool) -> String {
         || s.is_empty()
         || s.chars().any(|c| {
             c.is_whitespace()
-                || matches!(c, '"' | '\'' | '$' | '`' | '&' | '|' | '<' | '>' | ';' | '(' | ')' | '^')
+                || matches!(
+                    c,
+                    '"' | '\'' | '$' | '`' | '&' | '|' | '<' | '>' | ';' | '(' | ')' | '^'
+                )
         });
     if !needs {
         return s.to_string();
@@ -128,7 +135,9 @@ fn emit_cmd(intent: &Intent) -> String {
             .word("/I")
             .word("/Y")
             .build(),
-        Intent::Copy { src, dst, .. } => Line::new(t, "copy").word("/Y").path(src).path(dst).build(),
+        Intent::Copy { src, dst, .. } => {
+            Line::new(t, "copy").word("/Y").path(src).path(dst).build()
+        }
         Intent::Move { src, dst } => Line::new(t, "move").word("/Y").path(src).path(dst).build(),
         Intent::Remove {
             recursive: true,
@@ -250,10 +259,9 @@ fn emit_posix(intent: &Intent) -> String {
             }
         }
         Intent::ProcessList => "ps aux".to_string(),
-        Intent::KillPid { force, pids } => Line::new(t, "kill")
-            .flag(*force, "-9")
-            .paths(pids)
-            .build(),
+        Intent::KillPid { force, pids } => {
+            Line::new(t, "kill").flag(*force, "-9").paths(pids).build()
+        }
         Intent::KillName { force, name } => Line::new(t, "pkill")
             .flag(*force, "-9")
             .path(strip_exe(name))

@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn cp_r_quotes_spaces() {
-        assert_eq!(tr(r#"cp -r src "my dest""#, Cmd), r#"xcopy src "my dest" /E /I /Y"#);
+        assert_eq!(
+            tr(r#"cp -r src "my dest""#, Cmd),
+            r#"xcopy src "my dest" /E /I /Y"#
+        );
     }
 
     #[test]
@@ -77,7 +80,10 @@ mod tests {
         assert_eq!(tr("mkdir -p a/b", Cmd), r"mkdir a\b");
         assert_eq!(tr("kill -9 1234", Cmd), "taskkill /F /PID 1234");
         assert_eq!(tr("pkill notepad", Cmd), "taskkill /IM notepad.exe");
-        assert_eq!(tr("grep -in todo main.rs", Cmd), r#"findstr /I /N "todo" main.rs"#);
+        assert_eq!(
+            tr("grep -in todo main.rs", Cmd),
+            r#"findstr /I /N "todo" main.rs"#
+        );
         assert_eq!(tr("grep -r todo", Cmd), r#"findstr /S "todo" *"#);
         assert_eq!(tr("which cargo", Cmd), "where cargo");
         assert_eq!(tr("clear", Cmd), "cls");
@@ -123,8 +129,14 @@ mod tests {
     #[test]
     fn unknown_flags_are_not_guessed() {
         assert_eq!(translate("rm -i x", Cmd), Translation::Untranslated(None));
-        assert_eq!(translate("dir /O:D", Posix), Translation::Untranslated(None));
-        assert_eq!(translate("cargo build", Cmd), Translation::Untranslated(None));
+        assert_eq!(
+            translate("dir /O:D", Posix),
+            Translation::Untranslated(None)
+        );
+        assert_eq!(
+            translate("cargo build", Cmd),
+            Translation::Untranslated(None)
+        );
     }
 
     #[test]

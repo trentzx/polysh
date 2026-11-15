@@ -185,7 +185,14 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
             }
             let recursive = a.any("rRa") || a.long("recursive");
             let (src, dst) = two(a.pos)?;
-            Some((Posix, Intent::Copy { recursive, src, dst }))
+            Some((
+                Posix,
+                Intent::Copy {
+                    recursive,
+                    src,
+                    dst,
+                },
+            ))
         }
         "copy" | "xcopy" => {
             let a = cmd_args(rest);
@@ -198,7 +205,14 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
                 pos.push(".".to_string());
             }
             let (src, dst) = two(pos)?;
-            Some((Cmd, Intent::Copy { recursive, src, dst }))
+            Some((
+                Cmd,
+                Intent::Copy {
+                    recursive,
+                    src,
+                    dst,
+                },
+            ))
         }
         "mv" => {
             let a = posix_args(rest);
@@ -294,14 +308,24 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
             if !a.only("", &[], &[]) {
                 return None;
             }
-            Some((Posix, Intent::PrintFile { paths: non_empty(a.pos)? }))
+            Some((
+                Posix,
+                Intent::PrintFile {
+                    paths: non_empty(a.pos)?,
+                },
+            ))
         }
         "type" => {
             let a = cmd_args(rest);
             if !a.only("", &[], &[]) {
                 return None;
             }
-            Some((Cmd, Intent::PrintFile { paths: non_empty(a.pos)? }))
+            Some((
+                Cmd,
+                Intent::PrintFile {
+                    paths: non_empty(a.pos)?,
+                },
+            ))
         }
         "clear" if rest.is_empty() => Some((Posix, Intent::Clear)),
         "cls" if rest.is_empty() => Some((Cmd, Intent::Clear)),
@@ -322,11 +346,7 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
         }
 
         // ---- processes -----------------------------------------------------
-        "ps" if rest.is_empty()
-            || rest == ["aux"]
-            || rest == ["-ef"]
-            || rest == ["-e"] =>
-        {
+        "ps" if rest.is_empty() || rest == ["aux"] || rest == ["-ef"] || rest == ["-e"] => {
             Some((Posix, Intent::ProcessList))
         }
         "tasklist" if rest.is_empty() => Some((Cmd, Intent::ProcessList)),
@@ -335,11 +355,21 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
             if rest.iter().any(|t| t.starts_with('-') && !is_kill_force(t)) {
                 return None;
             }
-            let pids: Vec<String> = rest.iter().filter(|t| !t.starts_with('-')).cloned().collect();
+            let pids: Vec<String> = rest
+                .iter()
+                .filter(|t| !t.starts_with('-'))
+                .cloned()
+                .collect();
             if !pids.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
                 return None;
             }
-            Some((Posix, Intent::KillPid { force, pids: non_empty(pids)? }))
+            Some((
+                Posix,
+                Intent::KillPid {
+                    force,
+                    pids: non_empty(pids)?,
+                },
+            ))
         }
         "pkill" | "killall" => {
             let force = rest.iter().any(|t| is_kill_force(t));
@@ -371,7 +401,13 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
                 };
                 Some((Cmd, Intent::KillName { force, name }))
             } else if a.sw("PID") {
-                Some((Cmd, Intent::KillPid { force, pids: non_empty(a.pos)? }))
+                Some((
+                    Cmd,
+                    Intent::KillPid {
+                        force,
+                        pids: non_empty(a.pos)?,
+                    },
+                ))
             } else {
                 None
             }
@@ -383,14 +419,24 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
             if !a.only("a", &[], &[]) {
                 return None;
             }
-            Some((Posix, Intent::Which { names: non_empty(a.pos)? }))
+            Some((
+                Posix,
+                Intent::Which {
+                    names: non_empty(a.pos)?,
+                },
+            ))
         }
         "where" => {
             let a = cmd_args(rest);
             if !a.only("", &[], &[]) {
                 return None;
             }
-            Some((Cmd, Intent::Which { names: non_empty(a.pos)? }))
+            Some((
+                Cmd,
+                Intent::Which {
+                    names: non_empty(a.pos)?,
+                },
+            ))
         }
         "grep" => {
             let a = posix_args(rest);

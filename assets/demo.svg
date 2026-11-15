@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="530" viewBox="0 0 860 530" role="img" aria-label="polysh demo: Linux commands typed on Windows and Windows commands typed on macOS are translated and run">
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 15px; fill: #e6edf3; white-space: pre; }
+    .p { fill: #7ee787; }
+    .a { fill: #d2a8ff; }
+    .d { fill: #6e7681; }
+    .h { fill: #8b949e; font-style: italic; }
+    .t { fill: #8b949e; font-size: 13px; }
+    .cover { fill: #0d1117; transform-box: fill-box; transform-origin: right; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes type { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+    @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  </style>
+
+  <rect width="860" height="530" rx="12" fill="#0d1117"/>
+  <path d="M12 0h836a12 12 0 0 1 12 12v24H0V12A12 12 0 0 1 12 0z" fill="#161b22"/>
+  <circle cx="22" cy="18" r="6" fill="#ff5f57"/>
+  <circle cx="42" cy="18" r="6" fill="#febc2e"/>
+  <circle cx="62" cy="18" r="6" fill="#28c840"/>
+  <text class="t" x="430" y="23" text-anchor="middle">polysh: one shell, every dialect</text>
+
+  <!-- Windows -->
+  <text class="h" x="24" y="70" style="animation: fade .3s .2s both"># on Windows, typing Linux commands</text>
+
+  <g style="animation: fade .01s .8s both">
+    <text x="24" y="100"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="100">ls -la</text>
+    <rect class="cover" x="102" y="84" width="62" height="22" style="animation: type .33s steps(6) .8s both"/>
+  </g>
+  <g style="animation: fade .3s 1.48s both">
+    <text x="104" y="124"><tspan class="a">↳ </tspan>dir /A</text>
+    <text class="d" x="836" y="124" text-anchor="end">POSIX → Windows cmd</text>
+  </g>
+
+  <g style="animation: fade .01s 2.1s both">
+    <text x="24" y="160"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="160">cp -r src backup</text>
+    <rect class="cover" x="102" y="144" width="154" height="22" style="animation: type .88s steps(16) 2.1s both"/>
+  </g>
+  <g style="animation: fade .3s 3.33s both">
+    <text x="104" y="184"><tspan class="a">↳ </tspan>xcopy src backup /E /I /Y</text>
+    <text class="d" x="836" y="184" text-anchor="end">POSIX → Windows cmd</text>
+  </g>
+
+  <g style="animation: fade .01s 3.95s both">
+    <text x="24" y="220"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="220">kill -9 4242</text>
+    <rect class="cover" x="102" y="204" width="118" height="22" style="animation: type .66s steps(12) 3.95s both"/>
+  </g>
+  <g style="animation: fade .3s 4.96s both">
+    <text x="104" y="244"><tspan class="a">↳ </tspan>taskkill /F /PID 4242</text>
+    <text class="d" x="836" y="244" text-anchor="end">POSIX → Windows cmd</text>
+  </g>
+
+  <!-- macOS / Linux -->
+  <text class="h" x="24" y="290" style="animation: fade .3s 5.6s both"># on macOS, typing Windows commands</text>
+
+  <g style="animation: fade .01s 6.1s both">
+    <text x="24" y="320"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="320">dir /s /b</text>
+    <rect class="cover" x="102" y="304" width="90" height="22" style="animation: type .5s steps(9) 6.1s both"/>
+  </g>
+  <g style="animation: fade .3s 6.95s both">
+    <text x="104" y="344"><tspan class="a">↳ </tspan>ls -R</text>
+    <text class="d" x="836" y="344" text-anchor="end">Windows cmd → POSIX</text>
+  </g>
+
+  <g style="animation: fade .01s 7.6s both">
+    <text x="24" y="380"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="380">taskkill /F /IM node.exe</text>
+    <rect class="cover" x="102" y="364" width="228" height="22" style="animation: type 1.32s steps(24) 7.6s both"/>
+  </g>
+  <g style="animation: fade .3s 9.27s both">
+    <text x="104" y="404"><tspan class="a">↳ </tspan>pkill -9 node</text>
+    <text class="d" x="836" y="404" text-anchor="end">Windows cmd → POSIX</text>
+  </g>
+
+  <g style="animation: fade .01s 9.9s both">
+    <text x="24" y="440"><tspan class="p">polysh ›</tspan></text>
+    <text x="104" y="440">ipconfig</text>
+    <rect class="cover" x="102" y="424" width="82" height="22" style="animation: type .44s steps(8) 9.9s both"/>
+  </g>
+  <g style="animation: fade .3s 10.69s both">
+    <text x="104" y="464"><tspan class="a">↳ </tspan>ifconfig</text>
+    <text class="d" x="836" y="464" text-anchor="end">Windows cmd → POSIX</text>
+  </g>
+
+  <g style="animation: fade .01s 11.2s both">
+    <text x="24" y="500"><tspan class="p">polysh ›</tspan></text>
+    <rect x="104" y="485" width="9" height="19" fill="#e6edf3" style="animation: blink 1s 11.2s infinite"/>
+  </g>
+</svg>
