@@ -17,7 +17,7 @@ and polysh runs the right command for your OS, flags, pipes and all.
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-informational)
 ![Written in Rust](https://img.shields.io/badge/written%20in-Rust-orange?logo=rust)
 
-<img src="assets/demo.svg" alt="polysh translating Linux commands on Windows and Windows commands on macOS" width="760">
+<img src="assets/demo.gif" alt="polysh running ls -la, grep and tail on Windows, then grep, head and wc inside PowerShell via polysh init" width="760">
 
 </div>
 
