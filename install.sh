@@ -22,8 +22,10 @@ case "$os/$arch" in
   *) fail "no prebuilt binary for $os $arch yet. Try: cargo install --git https://github.com/$REPO" ;;
 esac
 
-tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" |
-  sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+# Follow the releases/latest redirect instead of the API, which is rate-limited.
+tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")
+tag=${tag##*/}
+case "$tag" in v*) ;; *) tag="" ;; esac
 [ -n "$tag" ] || fail "couldn't find the latest release"
 
 name="polysh-$tag-$target"

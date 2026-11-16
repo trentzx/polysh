@@ -12,7 +12,13 @@ $ProgressPreference = 'SilentlyContinue'
 $repo = 'trentzx/polysh'
 $dir = if ($env:POLYSH_INSTALL_DIR) { $env:POLYSH_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'polysh\bin' }
 
-$tag = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
+# Follow the releases/latest redirect instead of the API, which is rate-limited.
+$req = [Net.WebRequest]::Create("https://github.com/$repo/releases/latest")
+$req.Method = 'HEAD'
+$res = $req.GetResponse()
+$tag = $res.ResponseUri.Segments[-1]
+$res.Close()
+if ($tag -notlike 'v*') { throw "polysh: couldn't find the latest release" }
 $name = "polysh-$tag-x86_64-pc-windows-msvc"
 $url = "https://github.com/$repo/releases/download/$tag/$name.zip"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("polysh-" + [guid]::NewGuid())
