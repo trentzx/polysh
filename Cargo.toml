@@ -8,11 +8,22 @@ repository = "https://github.com/trentzx/polysh"
 readme = "README.md"
 keywords = ["shell", "cli", "cross-platform", "terminal", "translator"]
 categories = ["command-line-utilities"]
-exclude = [".github/", "assets/", "packaging/", "install.sh", "install.ps1"]
+exclude = [".github/", "assets/", "packaging/", "playground/", "site/", "install.sh", "install.ps1"]
+
+[features]
+default = ["cli"]
+# The interactive shell. Without it, only the translator library is built
+# (that's what the browser playground uses).
+cli = ["dep:ctrlc", "dep:rustyline"]
+
+[[bin]]
+name = "polysh"
+path = "src/main.rs"
+required-features = ["cli"]
 
 [dependencies]
-ctrlc = "3.5.2"
-rustyline = { version = "19.0.0", features = ["derive"] }
+ctrlc = { version = "3.5.2", optional = true }
+rustyline = { version = "19.0.0", features = ["derive"], optional = true }
 
 [profile.release]
 lto = true

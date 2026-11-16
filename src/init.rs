@@ -9,19 +9,96 @@
 
 pub const SHELLS: &str = "bash, zsh, fish, powershell, cmd";
 
-pub fn snippet(shell: &str) -> Option<&'static str> {
+pub fn snippet(shell: &str) -> Option<String> {
     match shell.to_ascii_lowercase().as_str() {
-        "bash" => Some(BASH),
-        "zsh" => Some(ZSH),
-        "fish" => Some(FISH),
-        "powershell" | "pwsh" | "ps" => Some(POWERSHELL),
-        "cmd" => Some(CMD),
+        "bash" => Some(BASH.to_string()),
+        "zsh" => Some(ZSH.to_string()),
+        "fish" => Some(fish()),
+        "powershell" | "pwsh" | "ps" => Some(POWERSHELL.to_string()),
+        "cmd" => Some(CMD.to_string()),
         _ => None,
     }
 }
 
+/// Windows cmd and PowerShell names polysh can translate. A shell without a
+/// usable "command not found" hook gets a wrapper for each one that isn't
+/// already a real command there.
+const FOREIGN_NAMES: &[&str] = &[
+    // cmd
+    "cls",
+    "copy",
+    "xcopy",
+    "move",
+    "del",
+    "erase",
+    "rd",
+    "md",
+    "ipconfig",
+    "tasklist",
+    "taskkill",
+    "where",
+    "findstr",
+    "ver",
+    "mklink",
+    "start",
+    "explorer",
+    // PowerShell
+    "Get-ChildItem",
+    "gci",
+    "Copy-Item",
+    "cpi",
+    "Move-Item",
+    "mi",
+    "Remove-Item",
+    "ri",
+    "New-Item",
+    "ni",
+    "Get-Content",
+    "gc",
+    "Clear-Host",
+    "Get-Process",
+    "gps",
+    "Stop-Process",
+    "spps",
+    "Get-Command",
+    "gcm",
+    "Select-String",
+    "sls",
+    "Get-NetIPConfiguration",
+    "gip",
+    "Set-Location",
+    "sl",
+    "Write-Output",
+    "Test-Connection",
+    "Start-Sleep",
+    "Select-Object",
+    "Measure-Object",
+    "Get-PSDrive",
+    "gdr",
+    "Get-Volume",
+    "Invoke-Item",
+    "ii",
+];
+
+/// fish runs its not-found handler with output sent to stderr and fails the
+/// command anyway, so the handler can only print messages. Wrap names instead.
+fn fish() -> String {
+    let mut names: Vec<String> = Vec::new();
+    for n in FOREIGN_NAMES {
+        names.push(n.to_string());
+        if n.contains(|c: char| c.is_ascii_uppercase()) {
+            names.push(n.to_ascii_lowercase());
+        }
+    }
+    FISH.replace("{names}", &names.join(" "))
+}
+
 const BASH: &str = r#"# polysh: run Windows and PowerShell commands bash doesn't know.
 # Add to ~/.bashrc:  eval "$(polysh init bash)"
+# Needs bash 4+ (macOS ships 3.2; use zsh there, or brew install bash).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  echo "polysh: bash $BASH_VERSION has no command-not-found hook; needs bash 4+" >&2
+else
 case "$(declare -f command_not_found_handle 2>/dev/null)" in
   *"polysh --hook"*) ;;
   ?*) eval "__polysh_prev_cnf() $(declare -f command_not_found_handle | tail -n +2)" ;;
@@ -37,6 +114,7 @@ command_not_found_handle() {
   printf 'bash: %s: command not found\n' "$1" >&2
   return 127
 }
+fi
 "#;
 
 const ZSH: &str = r#"# polysh: run Windows and PowerShell commands zsh doesn't know.
@@ -60,22 +138,22 @@ command_not_found_handler() {
 
 const FISH: &str = r#"# polysh: run Windows and PowerShell commands fish doesn't know.
 # Add to ~/.config/fish/config.fish:  polysh init fish | source
-if not functions -q __polysh_prev_cnf
-    and not string match -q '*polysh --hook*' -- (functions fish_command_not_found)
-    functions -c fish_command_not_found __polysh_prev_cnf
-end
-function fish_command_not_found
+function __polysh_run
     polysh --hook -- $argv
     set -l s $status
-    if test $s -ne 127
-        return $s
-    end
-    if functions -q __polysh_prev_cnf
-        __polysh_prev_cnf $argv
-    else
+    if test $s -eq 127
         echo "fish: Unknown command: $argv[1]" >&2
     end
+    return $s
 end
+for __polysh_name in {names}
+    if not type -q $__polysh_name
+        function $__polysh_name --inherit-variable __polysh_name
+            __polysh_run $__polysh_name $argv
+        end
+    end
+end
+set -e __polysh_name
 "#;
 
 // PowerShell already has aliases for ls, cp, rm, cat and friends, so this

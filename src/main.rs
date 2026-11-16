@@ -1,11 +1,4 @@
-mod dialect;
-mod emit;
 mod init;
-mod intent;
-mod parse;
-mod tokenize;
-mod translate;
-mod vars;
 
 use std::borrow::Cow::{self, Owned};
 use std::path::PathBuf;
@@ -17,9 +10,8 @@ use rustyline::highlight::Highlighter;
 use rustyline::hint::HistoryHinter;
 use rustyline::{Completer, CompletionType, Config, Editor, Helper, Hinter, Validator};
 
-use dialect::Dialect;
-use tokenize::{split_ops, split_redirect, Piece};
-use translate::{translate, Translation};
+use polysh::tokenize::{self, split_ops, split_redirect, Piece};
+use polysh::{translate, vars, Dialect, Translation};
 
 const USAGE: &str = r#"polysh - one shell, every dialect
 
