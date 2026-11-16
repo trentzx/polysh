@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-13]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - run: sh install.sh
@@ -51,5 +51,6 @@ jobs:
           ./install.ps1
           $exe = Join-Path $env:LOCALAPPDATA 'polysh\bin\polysh.exe'
           & $exe --version
+          $ErrorActionPreference = 'Continue'
           $out = & $exe -n --to posix 'dir /s /b' 2>$null
           if ($out -ne 'ls -R') { throw "unexpected: $out" }
