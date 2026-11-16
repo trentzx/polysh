@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: trentzx.polysh
-PackageVersion: 0.2.0
+PackageVersion: 0.3.0
 PackageLocale: en-US
 Publisher: trentzx
 PublisherUrl: https://github.com/trentzx
@@ -21,6 +21,6 @@ Tags:
   - cross-platform
   - linux
   - powershell
-ReleaseNotesUrl: https://github.com/trentzx/polysh/releases/tag/v0.2.0
+ReleaseNotesUrl: https://github.com/trentzx/polysh/releases/tag/v0.3.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
