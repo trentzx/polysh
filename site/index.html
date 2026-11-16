@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>polysh playground</title>
+<meta name="description" content="Type a Linux, macOS, Windows cmd or PowerShell command and see it translated for every OS. Runs entirely in your browser.">
+<meta property="og:title" content="polysh — type any OS's commands on any OS">
+<meta property="og:description" content="Try it: type ls -la, dir /s /b or Get-ChildItem and see the translation for every shell.">
+<meta property="og:image" content="https://raw.githubusercontent.com/trentzx/polysh/main/assets/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --panel-2: #181c25;
+    --line: #232836;
+    --text: #f0f3f6;
+    --muted: #8b93a7;
+    --blue: #5eb1ff;
+    --green: #7ee787;
+    --amber: #e3b341;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --panel-2: #f0f2f5;
+      --line: #dfe3ea;
+      --text: #0b0d12;
+      --muted: #5c6578;
+      --blue: #0969da;
+      --green: #1a7f37;
+      --amber: #9a6700;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 var(--sans);
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 16px; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font: 600 18px var(--mono); color: var(--text); }
+  .brand:hover { text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  .gh {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px;
+    color: var(--text); font-size: 14px; background: var(--panel);
+  }
+  .gh:hover { border-color: var(--muted); text-decoration: none; }
+  .gh svg { width: 16px; height: 16px; fill: currentColor; }
+
+  .hero { padding: 40px 0 24px; }
+  h1 { font-size: clamp(28px, 5vw, 44px); line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 12px; }
+  .lede { color: var(--muted); font-size: 18px; margin: 0; max-width: 620px; }
+
+  .prompt {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 32px; padding: 0 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  }
+  .prompt:focus-within { border-color: var(--blue); }
+  .prompt span { color: var(--green); font: 600 20px var(--mono); }
+  #cmd {
+    flex: 1; min-width: 0; padding: 16px 0;
+    background: none; border: 0; outline: 0;
+    color: var(--text); font: 18px var(--mono);
+  }
+  #cmd::placeholder { color: var(--muted); }
+
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .examples button {
+    font: 13px var(--mono); color: var(--muted);
+    background: transparent; border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 10px; cursor: pointer;
+  }
+  .examples button:hover { color: var(--text); border-color: var(--muted); }
+
+  .results { display: grid; gap: 12px; margin-top: 28px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .os { font-weight: 600; font-size: 14px; }
+  .tag { font-size: 12px; color: var(--muted); }
+  .tag.translated { color: var(--blue); }
+  .tag.native { color: var(--green); }
+  .tag.untranslated { color: var(--amber); }
+  .out-row { display: flex; align-items: flex-start; gap: 10px; }
+  .out {
+    flex: 1; min-width: 0; margin: 0;
+    font: 15px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .copy {
+    flex: none; font: 12px var(--sans); color: var(--muted);
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 8px; cursor: pointer;
+  }
+  .copy:hover { color: var(--text); }
+  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+  .share { margin-top: 12px; display: flex; gap: 12px; align-items: center; color: var(--muted); font-size: 14px; }
+  .share button {
+    font: 14px var(--sans); color: var(--text); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  .share button:hover { border-color: var(--muted); }
+
+  section { padding: 48px 0 0; }
+  h2 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 16px; }
+  .install { display: grid; gap: 10px; }
+  .install .card { padding: 12px 16px; }
+  .install .label { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  code { font-family: var(--mono); }
+
+  footer { padding: 48px 0 40px; color: var(--muted); font-size: 14px; }
+
+  @media (min-width: 760px) {
+    .install:not(.one) { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a class="brand" href="https://github.com/trentzx/polysh"><img src="logo.svg" alt="">polysh</a>
+    <a class="gh" href="https://github.com/trentzx/polysh">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Star on GitHub
+    </a>
+  </header>
+
+  <div class="hero">
+    <h1>Type any OS's commands.<br>On any OS.</h1>
+    <p class="lede">polysh translates Linux, macOS, Windows cmd and PowerShell commands into each other, flags and all. Try one. Nothing leaves your browser.</p>
+
+    <label class="prompt" for="cmd">
+      <span aria-hidden="true">›</span>
+      <input id="cmd" type="text" spellcheck="false" autocomplete="off" autocapitalize="off"
+             placeholder="ls -la" aria-label="Command to translate">
+    </label>
+
+    <div class="examples" id="examples"></div>
+
+    <div class="results" id="results" aria-live="polite"></div>
+    <p class="note" id="status">Loading the translator…</p>
+    <div class="share">
+      <button id="share" type="button">Copy link to this command</button>
+      <span id="share-msg"></span>
+    </div>
+  </div>
+
+  <section>
+    <h2>Get it</h2>
+    <p class="sub">One small offline binary for Windows, macOS and Linux.</p>
+    <div class="install one">
+      <div class="card"><div class="label">macOS / Linux</div><div class="out-row"><pre class="out">curl -fsSL https://raw.githubusercontent.com/trentzx/polysh/main/install.sh | sh</pre></div></div>
+      <div class="card"><div class="label">Windows (PowerShell)</div><div class="out-row"><pre class="out">irm https://raw.githubusercontent.com/trentzx/polysh/main/install.ps1 | iex</pre></div></div>
+      <div class="card"><div class="label">Homebrew</div><div class="out-row"><pre class="out">brew install trentzx/polysh/polysh</pre></div></div>
+      <div class="card"><div class="label">Scoop</div><div class="out-row"><pre class="out">scoop install https://raw.githubusercontent.com/trentzx/polysh/main/packaging/scoop/polysh.json</pre></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Teach your own shell</h2>
+    <p class="sub">Keep your shell. polysh only steps in when you type a command it doesn't know.</p>
+    <div class="install">
+      <div class="card"><div class="label">zsh (~/.zshrc)</div><div class="out-row"><pre class="out">eval "$(polysh init zsh)"</pre></div></div>
+      <div class="card"><div class="label">bash (~/.bashrc)</div><div class="out-row"><pre class="out">eval "$(polysh init bash)"</pre></div></div>
+      <div class="card"><div class="label">PowerShell ($PROFILE)</div><div class="out-row"><pre class="out">Invoke-Expression (&amp; polysh init powershell | Out-String)</pre></div></div>
+      <div class="card"><div class="label">fish (config.fish)</div><div class="out-row"><pre class="out">polysh init fish | source</pre></div></div>
+    </div>
+  </section>
+
+  <footer>
+    MIT licensed · <a href="https://github.com/trentzx/polysh">Source</a> ·
+    <a href="https://github.com/trentzx/polysh/issues/1">Request a command</a>
+  </footer>
+</div>
+
+<script>
+(() => {
+  const TARGETS = [
+    { id: 1, os: "Linux / macOS", shell: "POSIX sh" },
+    { id: 0, os: "Windows", shell: "Windows cmd" },
+    { id: 2, os: "PowerShell", shell: "PowerShell" },
+  ];
+  const EXAMPLES = [
+    "ls -la",
+    "rm -rf build && mkdir -p build/out",
+    "dir /s /b *.txt",
+    "cat app.log | grep -i error | head -5",
+    "Get-ChildItem -Recurse -Filter *.rs",
+    "tail -f server.log",
+    "ipconfig /all",
+    "kill -9 1234",
+    "echo $HOME",
+    "taskkill /F /IM node.exe",
+  ];
+
+  const input = document.getElementById("cmd");
+  const results = document.getElementById("results");
+  const status = document.getElementById("status");
+  const shareMsg = document.getElementById("share-msg");
+  let wasm = null;
+
+  const enc = new TextEncoder();
+  const dec = new TextDecoder();
+
+  function run(line, target) {
+    const bytes = enc.encode(line);
+    const ptr = wasm.alloc(bytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+    const len = wasm.translate(ptr, bytes.length, target);
+    const out = dec.decode(new Uint8Array(wasm.memory.buffer, wasm.result_ptr(), len));
+    const [kind, detail, ...rest] = out.split("\t");
+    return { kind, detail, command: rest.join("\t") };
+  }
+
+  function card(t, r) {
+    const el = document.createElement("div");
+    el.className = "card";
+    let tag;
+    if (r.kind === "translated") tag = "translated from " + r.detail;
+    else if (r.kind === "native") tag = "already " + t.shell;
+    else tag = "runs as typed" + (r.detail ? " · " + r.detail : "");
+    el.innerHTML =
+      '<div class="card-top"><span class="os"></span><span class="tag"></span></div>' +
+      '<div class="out-row"><pre class="out"></pre><button class="copy" type="button">Copy</button></div>';
+    el.querySelector(".os").textContent = t.os;
+    const tagEl = el.querySelector(".tag");
+    tagEl.textContent = tag;
+    tagEl.classList.add(r.kind);
+    el.querySelector(".out").textContent = r.command;
+    const btn = el.querySelector(".copy");
+    btn.addEventListener("click", () => copy(r.command, btn));
+    return el;
+  }
+
+  function render() {
+    const line = input.value.trim() || input.placeholder;
+    results.replaceChildren();
+    if (!wasm) return;
+    const all = TARGETS.map((t) => ({ t, r: run(line, t.id) }));
+    for (const { t, r } of all) results.append(card(t, r));
+    const unknown = all.every(({ r }) => r.kind === "untranslated");
+    status.innerHTML = unknown
+      ? 'No rule for this one yet, so every OS would run it as typed. <a href="https://github.com/trentzx/polysh/issues/1">Ask for it</a>.'
+      : "polysh never guesses: a flag it doesn't understand means the command runs unchanged.";
+  }
+
+  async function copy(text, btn) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (btn) { btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy"), 1200); }
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setFromHash() {
+    const m = location.hash.match(/^#c=(.*)$/);
+    if (m) {
+      try { input.value = decodeURIComponent(m[1]); } catch (e) {}
+    }
+  }
+
+  document.getElementById("share").addEventListener("click", async () => {
+    const line = input.value.trim() || input.placeholder;
+    const url = location.origin + location.pathname + "#c=" + encodeURIComponent(line);
+    history.replaceState(null, "", url);
+    shareMsg.textContent = (await copy(url)) ? "Link copied" : url;
+    setTimeout(() => (shareMsg.textContent = ""), 2500);
+  });
+
+  const ex = document.getElementById("examples");
+  for (const e of EXAMPLES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = e;
+    b.addEventListener("click", () => { input.value = e; render(); input.focus(); });
+    ex.append(b);
+  }
+
+  input.addEventListener("input", render);
+  window.addEventListener("hashchange", () => { setFromHash(); render(); });
+  setFromHash();
+
+  (async () => {
+    try {
+      const resp = await fetch("polysh.wasm");
+      const { instance } = WebAssembly.instantiateStreaming
+        ? await WebAssembly.instantiateStreaming(resp, {}).catch(async () =>
+            WebAssembly.instantiate(await (await fetch("polysh.wasm")).arrayBuffer(), {}))
+        : await WebAssembly.instantiate(await resp.arrayBuffer(), {});
+      wasm = instance.exports;
+      render();
+    } catch (e) {
+      status.textContent = "Couldn't load the translator (" + e.message + ").";
+    }
+  })();
+})();
+</script>
+</body>
+</html>

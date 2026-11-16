@@ -1,0 +1,24 @@
+# The polysh translator compiled to WebAssembly for the browser playground
+# (site/). No wasm-bindgen: it exports a few plain functions, see lib.rs.
+[package]
+name = "polysh-playground"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "lib.rs"
+
+[dependencies]
+polysh = { path = "..", default-features = false }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Its own workspace, separate from the polysh crate.
+[workspace]

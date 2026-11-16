@@ -9,6 +9,8 @@
 Type `ls -la` on Windows, `dir /s` on a Mac, or `Remove-Item -Recurse` anywhere,<br>
 and polysh runs the right command for your OS, flags, pipes and all.
 
+**[Try it in your browser →](https://trentzx.github.io/polysh/)**
+
 [![CI](https://github.com/trentzx/polysh/actions/workflows/ci.yml/badge.svg)](https://github.com/trentzx/polysh/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/trentzx/polysh?color=7ee787)](https://github.com/trentzx/polysh/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -85,8 +87,40 @@ $ polysh -n --to cmd "find . -name '*.log' | grep -i error > errors.txt"
 dir /S /B *.log | findstr /I "error" > errors.txt
 ```
 
+## Use it in the shell you already have
+
+Don't want a new shell? Add one line, and your normal terminal hands polysh only the commands it doesn't know. Everything else is untouched.
+
+```bash
+echo 'eval "$(polysh init zsh)"' >> ~/.zshrc      # zsh (macOS default)
+echo 'eval "$(polysh init bash)"' >> ~/.bashrc    # bash 4+
+echo 'polysh init fish | source' >> ~/.config/fish/config.fish
+```
+
+```powershell
+Add-Content $PROFILE 'Invoke-Expression (& polysh init powershell | Out-String)'
+```
+
+Then, in zsh on a Mac:
+
+```text
+$ ipconfig
+  ↳ ifconfig   (Windows cmd → POSIX sh)
+lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
+...
+```
+
+And in PowerShell, where `grep` and `head` don't exist:
+
+```text
+PS> Get-Content app.log | grep -i error | head -3
+```
+
+just works, and the result stays real PowerShell output you can keep piping. For cmd, `polysh init cmd` prints doskey macros you can load with `doskey /macrofile=`.
+
 ## What makes it different
 
+- **It plugs into your shell.** One `polysh init` line and bash, zsh, fish or PowerShell understand the other OSes' commands, with no new shell to learn.
 - **It speaks three dialects.** Windows cmd, Linux/macOS sh, and PowerShell, in any direction. Abbreviated PowerShell parameters work too, like `Remove-Item -rec -fo`.
 - **It translates flags, not just names.** PowerShell aliases `ls` to `Get-ChildItem`, then breaks on `ls -la`. polysh knows `-la` means "all files, long format".
 - **Pipes, chains and redirection just work.** `ls | grep x`, `mkdir out && cp a out`, `cmd 2>/dev/null`: each piece is translated, and `/dev/null` ↔ `NUL` ↔ `$null`.
@@ -109,6 +143,12 @@ dir /S /B *.log | findstr /I "error" > errors.txt
 | Remove folder | `rmdir` / `rd` `/S` `/Q` | `rmdir`, `rm -r` | `Remove-Item -Recurse` |
 | Create empty file | `type nul >> f` | `touch` | `New-Item f` |
 | Show a file | `type` | `cat` | `Get-Content` |
+| First / last lines | *(via PowerShell)* | `head -n 5`, `tail -n 5`, `tail -f` | `Get-Content -TotalCount 5`, `-Tail 5 -Wait`, `Select-Object -First 5` |
+| Count lines | `find /c /v ""` | `wc -l` | `@(Get-Content f).Count` |
+| OS version | `ver` | `uname -a` | `[Environment]::OSVersion` |
+| Disk space | *(via PowerShell)* | `df -h` | `Get-PSDrive -PSProvider FileSystem` |
+| Symbolic link | `mklink` `/D` | `ln -s` | `New-Item -ItemType SymbolicLink` |
+| Open a file or URL | `start`, `explorer` | `open`, `xdg-open` | `Start-Process`, `Invoke-Item` |
 | Print text | `echo %VAR%` | `echo $VAR` | `Write-Output $env:VAR` |
 | Clear screen | `cls` | `clear` | `Clear-Host` |
 | Environment | `set` | `env`, `printenv` | `Get-ChildItem Env:` |
@@ -162,10 +202,13 @@ The middle step is the key. Every command is reduced to an **intent** (what it m
 - [x] History, suggestions, Tab completion and Ctrl+C handling
 - [x] Environment variables (`%USERPROFILE%` ↔ `$HOME` ↔ `$env:…`)
 - [x] One-line installers, Homebrew and Scoop
+- [x] `polysh init`: hooks for bash, zsh, fish, PowerShell and cmd
+- [x] [Browser playground](https://trentzx.github.io/polysh/)
+- [x] `head`/`tail`, `wc -l`, `uname`/`ver`, `df`, `ln -s`/`mklink`, `open`/`start`
 - [ ] Run inside PowerShell instead of cmd on Windows (`polysh --shell pwsh`)
-- [ ] More commands: `tree`, `head`/`tail`, `chmod`/`icacls`, `shutdown`, `curl`/`Invoke-WebRequest`
+- [ ] More commands: `tree`, `chmod`/`icacls`, `shutdown`, `curl`/`Invoke-WebRequest`
 - [ ] Your own rules in a config file
-- [ ] `winget install polysh` and crates.io
+- [ ] `winget install polysh` (submitted) and crates.io
 
 ## Contributing
 
@@ -175,6 +218,8 @@ polysh is built to be easy to extend: one command is usually about 30 lines and 
 
 - On Windows, commands run through `cmd`, so PowerShell commands are translated to cmd. Running them in PowerShell directly is on the roadmap.
 - Command substitution (`$(…)`, backticks) is run as typed.
+- The PowerShell hook only sees names PowerShell doesn't know. `ls`, `cp`, `rm` and `cat` are already PowerShell aliases, so `ls -la` there still goes to `Get-ChildItem`.
+- The bash hook needs bash 4 or newer; macOS ships bash 3.2, so use zsh (the default) there.
 - `type` is treated as the Windows "print file" command, so the POSIX `type <cmd>` built-in isn't available through polysh.
 
 ## License

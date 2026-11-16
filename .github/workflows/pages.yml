@@ -1,0 +1,45 @@
+name: Playground
+
+# Builds the translator to WebAssembly and publishes site/ to GitHub Pages.
+on:
+  push:
+    branches: [main]
+    paths: ["src/**", "playground/**", "site/**", "assets/logo.svg", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - run: cargo build --release --target wasm32-unknown-unknown
+        working-directory: playground
+      - run: |
+          mkdir -p _site
+          cp site/index.html assets/logo.svg _site/
+          cp playground/target/wasm32-unknown-unknown/release/polysh_playground.wasm _site/polysh.wasm
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
