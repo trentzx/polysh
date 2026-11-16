@@ -21,3 +21,45 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
+      - run: cargo build
+
+      # `polysh init`: the user's own shell hands unknown commands to polysh.
+      - name: shell hooks (bash, zsh, fish)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get install -y zsh fish >/dev/null
+          else
+            brew install fish >/dev/null
+          fi
+          export PATH="$PWD/target/debug:$PATH"
+          cd "$(mktemp -d)"
+          printf 'alpha\nbeta\n' > f.txt
+          for sh in bash zsh fish; do
+            if [ $sh = fish ]; then setup='polysh init fish | source'; else setup="eval \"\$(polysh init $sh)\""; fi
+            out=$($sh -c "$setup; md made/deep; findstr beta f.txt; Get-ChildItem -Name f.txt")
+            echo "$sh: $out"
+            test "$out" = "$(printf 'beta\nf.txt')"
+            test -d made/deep && rm -r made
+            if $sh -c "$setup; frobnicate" 2>/dev/null; then echo "$sh: unknown command should fail"; exit 1; fi
+          done
+
+      - name: shell hook (PowerShell)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Only Windows' own tools, so nothing like Git's grep gets in the way.
+          $env:Path = "$PWD\target\debug;C:\Windows\System32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0"
+          Invoke-Expression (& polysh init powershell | Out-String)
+          Set-Location $env:RUNNER_TEMP
+          'alpha', 'beta' | Set-Content f.txt
+          touch made.txt
+          if (-not (Test-Path made.txt)) { throw 'touch failed' }
+          $first = Get-Content f.txt | head -1
+          if ($first -ne 'alpha') { throw "head: $first" }
+          $count = wc -l f.txt
+          if ($count -ne 2) { throw "wc: $count" }
+          $hit = grep beta f.txt
+          if (-not ($hit -match 'beta')) { throw "grep: $hit" }

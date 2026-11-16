@@ -1,5 +1,6 @@
 mod dialect;
 mod emit;
+mod init;
 mod intent;
 mod parse;
 mod tokenize;
@@ -20,14 +21,16 @@ use dialect::Dialect;
 use tokenize::{split_ops, split_redirect, Piece};
 use translate::{translate, Translation};
 
-const USAGE: &str = "\
-polysh - one shell, every dialect
+const USAGE: &str = r#"polysh - one shell, every dialect
 
 USAGE:
     polysh                          Start the interactive shell
     polysh -c <command>             Translate and run one command
     polysh -n [--to <dialect>] <command>
                                     Explain only: print the translation, run nothing
+    polysh init <shell>             Print a hook that makes your own shell
+                                    understand every dialect (bash, zsh, fish,
+                                    powershell, cmd)
     polysh -h | --help              Show this help
     polysh -V | --version           Show the version
 
@@ -38,7 +41,13 @@ DIALECTS (for --to):
 
 Type Windows (dir, del, copy, ...), Linux/macOS (ls, rm, cp, ...) or
 PowerShell (Get-ChildItem, Remove-Item, ...) commands; polysh rewrites them
-for the OS you're on.";
+for the OS you're on.
+
+SET UP YOUR OWN SHELL (unknown commands get translated, nothing else changes):
+    bash        echo 'eval "$(polysh init bash)"' >> ~/.bashrc
+    zsh         echo 'eval "$(polysh init zsh)"' >> ~/.zshrc
+    fish        echo 'polysh init fish | source' >> ~/.config/fish/config.fish
+    PowerShell  Add-Content $PROFILE 'Invoke-Expression (& polysh init powershell | Out-String)'"#;
 
 const REPL_HELP: &str = "\
 Built-ins:  cd [dir]   pwd   help   exit [code]
@@ -62,13 +71,24 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         None => repl(target),
         Some("-c") => {
-            let line = args[1..].join(" ");
+            let line = join_args(&args[1..]);
             let code = match run_line(&line, target) {
                 Control::Continue(c) | Control::Exit(c) => c,
             };
             exit_code(code)
         }
         Some("-n") | Some("--explain") => explain(&args[1..], target),
+        Some("init") => match args.get(1).and_then(|s| init::snippet(s)) {
+            Some(snippet) => {
+                print!("{snippet}");
+                ExitCode::SUCCESS
+            }
+            None => {
+                eprintln!("polysh: usage: polysh init <shell>   ({})", init::SHELLS);
+                ExitCode::from(2)
+            }
+        },
+        Some("--hook") => hook(&args[1..], target),
         Some("-h") | Some("--help") => {
             println!("{USAGE}");
             ExitCode::SUCCESS
@@ -110,6 +130,87 @@ fn explain(args: &[String], native: Dialect) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Rebuild a command line from separate arguments, quoting the ones that
+/// need it. A single argument is taken as an already-written command line
+/// (`polysh -c "ls -la | grep x"`).
+fn join_args(args: &[String]) -> String {
+    match args {
+        [line] => line.clone(),
+        _ => quote_words(args),
+    }
+}
+
+/// Join separate words into a command line, quoting any that hold spaces
+/// or shell operators so they stay one word.
+fn quote_words(args: &[String]) -> String {
+    args.iter()
+        .map(|a| {
+            let plain = !a.is_empty()
+                && !a.chars().any(|c| {
+                    c.is_whitespace()
+                        || matches!(
+                            c,
+                            '"' | '\'' | '|' | '&' | ';' | '<' | '>' | '(' | ')' | '`'
+                        )
+                });
+            if plain {
+                a.clone()
+            } else if a.contains('"') {
+                format!("'{a}'")
+            } else {
+                format!("\"{a}\"")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Called by the `polysh init` shell hooks with a command the shell didn't
+/// recognise. Runs (or with `--print`, prints) the translation; exits 127
+/// without output when there is none, so the shell can report "not found".
+fn hook(args: &[String], native: Dialect) -> ExitCode {
+    let mut print = false;
+    let mut target = native;
+    let mut rest = args;
+    loop {
+        match rest {
+            [flag, tail @ ..] if flag == "--print" => {
+                print = true;
+                rest = tail;
+            }
+            [flag, name, tail @ ..] if flag == "--to" => {
+                let Some(d) = Dialect::from_name(name) else {
+                    return ExitCode::from(2);
+                };
+                target = d;
+                rest = tail;
+            }
+            [flag, tail @ ..] if flag == "--" => {
+                rest = tail;
+                break;
+            }
+            _ => break,
+        }
+    }
+    // Every word arrives separately, already unquoted by the calling shell.
+    match translate(&quote_words(rest), target) {
+        Translation::Translated { from, command } => {
+            note(&format!(
+                "↳ {command}   ({} → {})",
+                from.name(),
+                target.name()
+            ));
+            if print {
+                println!("{command}");
+                ExitCode::SUCCESS
+            } else {
+                exit_code(execute(&command))
+            }
+        }
+        _ => ExitCode::from(127),
+    }
 }
 
 fn exit_code(code: i32) -> ExitCode {

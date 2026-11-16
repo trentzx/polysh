@@ -422,4 +422,80 @@ mod tests {
             Translation::Untranslated(Some(_))
         ));
     }
+
+    // ---- reading files, system ---------------------------------------------
+
+    #[test]
+    fn head_tail_wc() {
+        assert_eq!(
+            tr("head -n 5 log.txt", Cmd),
+            r#"powershell -NoProfile -Command "Get-Content -TotalCount 5 log.txt""#
+        );
+        assert_eq!(
+            tr("cat log | head -3", Cmd),
+            r#"type log | powershell -NoProfile -Command "$input | Select-Object -First 3""#
+        );
+        assert_eq!(
+            tr("tail -f app.log", PowerShell),
+            "Get-Content -Tail 10 -Wait app.log"
+        );
+        assert_eq!(
+            tr("Get-Content log -Tail 20 -Wait", Posix),
+            "tail -n 20 -f log"
+        );
+        assert_eq!(tr("gc f -TotalCount 3", Posix), "head -n 3 f");
+        assert_eq!(tr("ls | select -First 2", Posix), "ls | head -n 2");
+        assert_eq!(tr("wc -l f", PowerShell), "@(Get-Content f).Count");
+        assert_eq!(tr(r#"find /c /v "" notes.txt"#, Posix), "wc -l < notes.txt");
+        // Not guessed: multiple files, `tail -n +N`, `wc` without `-l`.
+        assert_eq!(translate("head a b", Cmd), Translation::Untranslated(None));
+        assert_eq!(
+            translate("tail -n +3 f", Cmd),
+            Translation::Untranslated(None)
+        );
+        assert_eq!(translate("wc f", Cmd), Translation::Untranslated(None));
+    }
+
+    #[test]
+    fn system_commands() {
+        assert_eq!(tr("uname -a", Cmd), "ver");
+        assert_eq!(tr("ver", Posix), "uname -a");
+        assert_eq!(
+            tr("df -h", PowerShell),
+            "Get-PSDrive -PSProvider FileSystem"
+        );
+        assert_eq!(tr("Get-PSDrive -PSProvider FileSystem", Posix), "df -h");
+    }
+
+    #[test]
+    fn symlinks() {
+        assert_eq!(tr("mklink /D link src", Posix), "ln -s src link");
+        assert_eq!(
+            tr("ln -s a b", PowerShell),
+            "New-Item -ItemType SymbolicLink -Path b -Target a"
+        );
+        assert_eq!(
+            tr("ni -ItemType SymbolicLink -Path l -Target t", Posix),
+            "ln -s t l"
+        );
+        assert!(tr("ln -s src link", Cmd).contains(r#"mklink /D "link" "src""#));
+        assert_eq!(translate("ln a b", Cmd), Translation::Untranslated(None));
+    }
+
+    #[test]
+    fn open_things() {
+        assert_eq!(tr("open .", Cmd), r#"start "" ."#);
+        assert_eq!(
+            tr("xdg-open report.pdf", PowerShell),
+            "Start-Process report.pdf"
+        );
+        assert!(tr(r#"start "" https://example.com"#, Posix).ends_with("https://example.com"));
+        assert!(tr("explorer .", Posix).ends_with(" ."));
+        // `start notepad` runs a program; not an "open".
+        assert_eq!(
+            translate("start notepad", Posix),
+            Translation::Untranslated(None)
+        );
+        assert_eq!(translate("start https://x.com", Cmd), Translation::Native);
+    }
 }

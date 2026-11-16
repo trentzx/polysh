@@ -86,4 +86,31 @@ pub enum Intent {
         pattern: String,
         paths: Vec<String>,
     },
+    /// First `lines` lines of a file, or of the input when `path` is `None`.
+    Head {
+        lines: String,
+        path: Option<String>,
+    },
+    /// Last `lines` lines; `follow` keeps printing as the file grows.
+    Tail {
+        lines: String,
+        follow: bool,
+        path: Option<String>,
+    },
+    /// Number of lines in a file, or in the input when `path` is `None`.
+    CountLines {
+        path: Option<String>,
+    },
+    OsInfo,
+    DiskFree,
+    /// `dir: None` means "whatever `target` turns out to be".
+    Symlink {
+        dir: Option<bool>,
+        target: String,
+        link: String,
+    },
+    /// Open a file, folder or URL with its default app.
+    Open {
+        path: String,
+    },
 }

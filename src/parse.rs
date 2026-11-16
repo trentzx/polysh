@@ -154,6 +154,62 @@ fn split_parent(p: &str) -> (String, String) {
     }
 }
 
+/// `head`/`tail` flags: `-n N`, `-nN`, `-N`, `--lines=N`, and `-f` for tail.
+/// At most one file; `tail -f` needs one.
+fn parse_head_tail(rest: &[String], tail: bool) -> Option<(String, bool, Option<String>)> {
+    let mut lines = "10".to_string();
+    let mut follow = false;
+    let mut paths = Vec::new();
+    let mut it = rest.iter();
+    while let Some(t) = it.next() {
+        if t == "-f" && tail {
+            follow = true;
+        } else if t == "-n" || t == "--lines" {
+            lines = it.next().filter(|n| is_number(n))?.clone();
+        } else if let Some(n) = t.strip_prefix("--lines=").or_else(|| t.strip_prefix("-n")) {
+            if !is_number(n) {
+                return None;
+            }
+            lines = n.to_string();
+        } else if let Some(n) = t.strip_prefix('-') {
+            if !is_number(n) {
+                return None;
+            }
+            lines = n.to_string();
+        } else {
+            paths.push(t.clone());
+        }
+    }
+    if paths.len() > 1 {
+        return None;
+    }
+    let path = paths.pop();
+    if follow && path.is_none() {
+        return None;
+    }
+    Some((lines, follow, path))
+}
+
+/// Does `start X` mean "open X" rather than "run program X"?
+fn looks_openable(p: &str) -> bool {
+    if p.contains("://") {
+        return true;
+    }
+    let lower = p.to_ascii_lowercase();
+    let program = [".exe", ".bat", ".cmd", ".com", ".ps1", ".msi"]
+        .iter()
+        .any(|e| lower.ends_with(e));
+    !program && !p.starts_with('/') && p.contains(['.', '\\', '/'])
+}
+
+fn single(mut v: Vec<String>) -> Option<String> {
+    if v.len() == 1 {
+        v.pop()
+    } else {
+        None
+    }
+}
+
 /// Parsed PowerShell parameters.
 #[derive(Debug, Default)]
 struct Ps {
@@ -311,10 +367,13 @@ fn parse_powershell(name: &str, rest: &[String]) -> Option<Intent> {
                     ("path", true),
                     ("name", true),
                     ("force", false),
+                    ("target", true),
+                    ("value", true),
                 ],
             )?;
             let mut paths = p.pos.clone();
             paths.extend(p.get("path"));
+            let link_target = p.get("target").or_else(|| p.get("value"));
             if let Some(n) = p.get("name") {
                 if paths.len() > 1 {
                     return None;
@@ -327,6 +386,12 @@ fn parse_powershell(name: &str, rest: &[String]) -> Option<Intent> {
             }
             let paths = non_empty(paths)?;
             match p.get("itemtype").map(|t| t.to_ascii_lowercase()).as_deref() {
+                Some("symboliclink") if !p.has("force") => Some(Intent::Symlink {
+                    dir: None,
+                    target: link_target?,
+                    link: single(paths)?,
+                }),
+                _ if link_target.is_some() => None,
                 Some("directory") | Some("dir") => Some(Intent::MakeDir { paths }),
                 // `-Force` on a file truncates it, which isn't `touch`.
                 Some("file") | None if !p.has("force") => Some(Intent::Touch { paths }),
@@ -334,11 +399,83 @@ fn parse_powershell(name: &str, rest: &[String]) -> Option<Intent> {
             }
         }
         "get-content" | "gc" => {
+            let p = ps_args(
+                rest,
+                &[
+                    ("path", true),
+                    ("totalcount", true),
+                    ("head", true),
+                    ("first", true),
+                    ("tail", true),
+                    ("last", true),
+                    ("wait", false),
+                ],
+            )?;
+            let mut paths = p.pos.clone();
+            paths.extend(p.get("path"));
+            let head = p
+                .get("totalcount")
+                .or_else(|| p.get("head"))
+                .or_else(|| p.get("first"));
+            let tail = p.get("tail").or_else(|| p.get("last"));
+            match (head, tail) {
+                (None, None) if !p.has("wait") => Some(Intent::PrintFile {
+                    paths: non_empty(paths)?,
+                }),
+                (Some(n), None) if is_number(&n) && !p.has("wait") => Some(Intent::Head {
+                    lines: n,
+                    path: Some(single(paths)?),
+                }),
+                (None, Some(n)) if is_number(&n) => Some(Intent::Tail {
+                    lines: n,
+                    follow: p.has("wait"),
+                    path: Some(single(paths)?),
+                }),
+                _ => None,
+            }
+        }
+        "select-object" | "select" => {
+            let p = ps_args(rest, &[("first", true), ("last", true)])?;
+            if !p.pos.is_empty() {
+                return None;
+            }
+            match (p.get("first"), p.get("last")) {
+                (Some(n), None) if is_number(&n) => Some(Intent::Head {
+                    lines: n,
+                    path: None,
+                }),
+                (None, Some(n)) if is_number(&n) => Some(Intent::Tail {
+                    lines: n,
+                    follow: false,
+                    path: None,
+                }),
+                _ => None,
+            }
+        }
+        "measure-object" | "measure" => {
+            let p = ps_args(rest, &[("line", false)])?;
+            if p.has("line") && p.pos.is_empty() {
+                Some(Intent::CountLines { path: None })
+            } else {
+                None
+            }
+        }
+        "get-psdrive" | "gdr" => {
+            let p = ps_args(rest, &[("psprovider", true)])?;
+            match p.get("psprovider") {
+                Some(v) if v.eq_ignore_ascii_case("filesystem") && p.pos.is_empty() => {
+                    Some(Intent::DiskFree)
+                }
+                _ => None,
+            }
+        }
+        "get-volume" if rest.is_empty() => Some(Intent::DiskFree),
+        "invoke-item" | "ii" => {
             let p = ps_args(rest, &[("path", true)])?;
             let mut paths = p.pos.clone();
             paths.extend(p.get("path"));
-            Some(Intent::PrintFile {
-                paths: non_empty(paths)?,
+            Some(Intent::Open {
+                path: single(paths)?,
             })
         }
         "clear-host" if rest.is_empty() => Some(Intent::Clear),
@@ -852,8 +989,21 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
             ))
         }
         "find" => {
-            // Only POSIX `find [root] -name pattern`; cmd's `find` is a text
-            // search and is left alone.
+            // cmd's `find /c /v ""` is the classic line counter.
+            if (3..=4).contains(&rest.len())
+                && rest[0].eq_ignore_ascii_case("/c")
+                && rest[1].eq_ignore_ascii_case("/v")
+                && rest[2].is_empty()
+            {
+                return Some((
+                    Cmd,
+                    Intent::CountLines {
+                        path: rest.get(3).cloned(),
+                    },
+                ));
+            }
+            // Otherwise only POSIX `find [root] -name pattern`; cmd's other
+            // `find` uses are text searches and are left alone.
             let (root, args) = match rest.split_first() {
                 Some((r, tail)) if !r.starts_with('-') => (r.clone(), tail),
                 _ => (".".to_string(), rest),
@@ -870,6 +1020,81 @@ pub fn parse(tokens: &[String], native: Dialect) -> Option<(Dialect, Intent)> {
                 _ => None,
             }
         }
+
+        // ---- reading files -------------------------------------------------
+        "head" | "tail" => {
+            let (lines, follow, path) = parse_head_tail(rest, name == "tail")?;
+            let intent = if name == "head" {
+                Intent::Head { lines, path }
+            } else {
+                Intent::Tail {
+                    lines,
+                    follow,
+                    path,
+                }
+            };
+            Some((Posix, intent))
+        }
+        "wc" => match rest {
+            [flag] if flag == "-l" => Some((Posix, Intent::CountLines { path: None })),
+            [flag, path] if flag == "-l" && !path.starts_with('-') => Some((
+                Posix,
+                Intent::CountLines {
+                    path: Some(path.clone()),
+                },
+            )),
+            _ => None,
+        },
+
+        // ---- system --------------------------------------------------------
+        "uname" if rest.is_empty() || rest == ["-a"] => Some((Posix, Intent::OsInfo)),
+        "ver" if rest.is_empty() => Some((Cmd, Intent::OsInfo)),
+        "df" if rest.is_empty() || rest == ["-h"] => Some((Posix, Intent::DiskFree)),
+        "ln" => {
+            let a = posix_args(rest);
+            if !a.has('s') || !a.only("s", &[], &[]) {
+                return None;
+            }
+            let (target, link) = two(a.pos)?;
+            Some((
+                Posix,
+                Intent::Symlink {
+                    dir: None,
+                    target,
+                    link,
+                },
+            ))
+        }
+        "mklink" => {
+            let a = cmd_args(rest);
+            if !a.only("", &[], &["D"]) {
+                return None;
+            }
+            let dir = a.sw("D");
+            let (link, target) = two(a.pos)?;
+            Some((
+                Cmd,
+                Intent::Symlink {
+                    dir: Some(dir),
+                    target,
+                    link,
+                },
+            ))
+        }
+        "open" | "xdg-open" => match rest {
+            [p] if !p.starts_with('-') => Some((Posix, Intent::Open { path: p.clone() })),
+            _ => None,
+        },
+        "start" => match rest {
+            [p] | [_, p] if looks_openable(p) && (rest.len() == 1 || rest[0].is_empty()) => {
+                Some((Cmd, Intent::Open { path: p.clone() }))
+            }
+            _ => None,
+        },
+        "explorer" => match rest {
+            [p] if !p.starts_with('/') => Some((Cmd, Intent::Open { path: p.clone() })),
+            _ => None,
+        },
 
         // ---- environment, time, network ------------------------------------
         "env" | "printenv" if rest.is_empty() => Some((Posix, Intent::ListEnv)),

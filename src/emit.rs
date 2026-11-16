@@ -160,8 +160,60 @@ fn with_exe(name: &str) -> String {
     }
 }
 
+/// cmd has no built-in for this; run the PowerShell version instead.
+fn via_powershell(intent: &Intent, l: Ctx) -> String {
+    let ps = emit_powershell(
+        intent,
+        Ctx {
+            from: l.from,
+            to: PowerShell,
+        },
+    );
+    let reads_input = matches!(
+        intent,
+        Intent::Head { path: None, .. }
+            | Intent::Tail { path: None, .. }
+            | Intent::CountLines { path: None }
+    );
+    let ps = if reads_input {
+        format!("$input | {ps}")
+    } else {
+        ps
+    };
+    format!(
+        "powershell -NoProfile -Command \"{}\"",
+        ps.replace('"', "\\\"")
+    )
+}
+
 fn emit_cmd(intent: &Intent, l: Ctx) -> String {
     match intent {
+        // cmd's own `find /c /v ""` would do for counting, but a Git or MSYS
+        // `find` earlier in PATH turns it into a whole-disk walk.
+        Intent::Head { .. }
+        | Intent::Tail { .. }
+        | Intent::CountLines { .. }
+        | Intent::DiskFree => via_powershell(intent, l),
+        Intent::OsInfo => "ver".to_string(),
+        Intent::Symlink {
+            dir: Some(dir),
+            target,
+            link,
+        } => l
+            .line("mklink")
+            .flag(*dir, "/D")
+            .path(link)
+            .path(target)
+            .build(),
+        Intent::Symlink {
+            dir: None,
+            target,
+            link,
+        } => {
+            let (t, k) = (l.convert(target), l.convert(link));
+            format!("if exist \"{t}\\*\" (mklink /D \"{k}\" \"{t}\") else (mklink \"{k}\" \"{t}\")")
+        }
+        Intent::Open { path } => l.line("start").word("\"\"").path(path).build(),
         Intent::ListDir {
             all,
             long,
@@ -299,6 +351,40 @@ fn emit_cmd(intent: &Intent, l: Ctx) -> String {
 
 fn emit_posix(intent: &Intent, l: Ctx) -> String {
     match intent {
+        Intent::Head { lines, path } => {
+            let line = l.line("head").word("-n").word(lines);
+            match path {
+                Some(p) => line.path(p).build(),
+                None => line.build(),
+            }
+        }
+        Intent::Tail {
+            lines,
+            follow,
+            path,
+        } => {
+            let line = l.line("tail").word("-n").word(lines).flag(*follow, "-f");
+            match path {
+                Some(p) => line.path(p).build(),
+                None => line.build(),
+            }
+        }
+        // `< file` so only the number is printed, like the other dialects.
+        Intent::CountLines { path: None } => "wc -l".to_string(),
+        Intent::CountLines { path: Some(p) } => format!("wc -l < {}", l.arg(p)),
+        Intent::OsInfo => "uname -a".to_string(),
+        Intent::DiskFree => "df -h".to_string(),
+        Intent::Symlink { target, link, .. } => {
+            l.line("ln").word("-s").path(target).path(link).build()
+        }
+        Intent::Open { path } => {
+            let opener = if cfg!(target_os = "macos") {
+                "open"
+            } else {
+                "xdg-open"
+            };
+            l.line(opener).path(path).build()
+        }
         Intent::ListDir {
             all,
             long,
@@ -404,6 +490,47 @@ fn emit_posix(intent: &Intent, l: Ctx) -> String {
 
 fn emit_powershell(intent: &Intent, l: Ctx) -> String {
     match intent {
+        Intent::Head {
+            lines,
+            path: Some(p),
+        } => l
+            .line("Get-Content")
+            .word("-TotalCount")
+            .word(lines)
+            .path(p)
+            .build(),
+        Intent::Head { lines, path: None } => format!("Select-Object -First {lines}"),
+        Intent::Tail {
+            lines,
+            follow,
+            path: Some(p),
+        } => l
+            .line("Get-Content")
+            .word("-Tail")
+            .word(lines)
+            .flag(*follow, "-Wait")
+            .path(p)
+            .build(),
+        Intent::Tail {
+            lines, path: None, ..
+        } => format!("Select-Object -Last {lines}"),
+        // Not `Measure-Object -Line`: that skips blank lines, `wc -l` doesn't.
+        Intent::CountLines { path: None } => {
+            "Measure-Object | Select-Object -ExpandProperty Count".to_string()
+        }
+        Intent::CountLines { path: Some(p) } => format!("@(Get-Content {}).Count", l.arg(p)),
+        Intent::OsInfo => "[System.Environment]::OSVersion.VersionString".to_string(),
+        Intent::DiskFree => "Get-PSDrive -PSProvider FileSystem".to_string(),
+        Intent::Symlink { target, link, .. } => l
+            .line("New-Item")
+            .word("-ItemType")
+            .word("SymbolicLink")
+            .word("-Path")
+            .path(link)
+            .word("-Target")
+            .path(target)
+            .build(),
+        Intent::Open { path } => l.line("Start-Process").path(path).build(),
         Intent::ListDir {
             all,
             long,
